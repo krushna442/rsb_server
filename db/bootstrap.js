@@ -416,7 +416,8 @@ async function createScannedProductsTable() {
         matched_fields LONGTEXT,
         mismatched_fields LONGTEXT,
 
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP NULL,
+
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         ON UPDATE CURRENT_TIMESTAMP,
 
