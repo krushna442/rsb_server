@@ -342,9 +342,11 @@ async function createProductsTable() {
         specification LONGTEXT NOT NULL,
         ppap_documents LONGTEXT,
 
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-ON UPDATE CURRENT_TIMESTAMP
+        created_at TIMESTAMP NULL,
+
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP,
+
         created_by VARCHAR(100),
         modified_by VARCHAR(100),
 
