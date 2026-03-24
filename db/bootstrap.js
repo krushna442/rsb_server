@@ -277,8 +277,8 @@ async function createDynamicFieldsTable() {
         approval_fields LONGTEXT NOT NULL,
         quality_verification_fields LONGTEXT NOT NULL,
 
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        ON UPDATE CURRENT_TIMESTAMP
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+ON UPDATE CURRENT_TIMESTAMP
 
       ) ENGINE=InnoDB
       DEFAULT CHARSET=utf8mb4
@@ -343,9 +343,8 @@ async function createProductsTable() {
         ppap_documents LONGTEXT,
 
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        ON UPDATE CURRENT_TIMESTAMP,
-
+updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+ON UPDATE CURRENT_TIMESTAMP
         created_by VARCHAR(100),
         modified_by VARCHAR(100),
 
@@ -416,7 +415,7 @@ async function createScannedProductsTable() {
         mismatched_fields LONGTEXT,
 
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         ON UPDATE CURRENT_TIMESTAMP,
 
         FOREIGN KEY (product_id)
