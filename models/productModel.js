@@ -506,58 +506,71 @@ export const getDropdownOptions = async () => {
   try {
 
     const rows = await query(`
-      SELECT
-        GROUP_CONCAT(DISTINCT customer) AS customers,
-
-        GROUP_CONCAT(
-          DISTINCT JSON_UNQUOTE(JSON_EXTRACT(specification, '$.partType'))
-        ) AS productTypes,
-
-        GROUP_CONCAT(
-          DISTINCT JSON_UNQUOTE(JSON_EXTRACT(specification, '$.tubeDiameter'))
-        ) AS tubeDia,
-
-        GROUP_CONCAT(
-          DISTINCT JSON_UNQUOTE(JSON_EXTRACT(specification, '$.couplingFlangeOrientations'))
-        ) AS cFlangeOrientation,
-
-        GROUP_CONCAT(
-          DISTINCT JSON_UNQUOTE(JSON_EXTRACT(specification, '$.mountingDetailsCouplingFlange'))
-        ) AS couplingFlange,
-
-        GROUP_CONCAT(
-          DISTINCT JSON_UNQUOTE(JSON_EXTRACT(specification, '$.series'))
-        ) AS jointType,
-
-        GROUP_CONCAT(
-          DISTINCT JSON_UNQUOTE(JSON_EXTRACT(specification, '$.mountingDetailsFlangeYoke'))
-        ) AS flangeYoke
-
+      SELECT customer, specification
       FROM products
       WHERE specification IS NOT NULL
     `);
 
+    const customers = new Set();
+    const productTypes = new Set();
+    const tubeDia = new Set();
+    const cFlangeOrientation = new Set();
+    const couplingFlange = new Set();
+    const jointType = new Set();
+    const flangeYoke = new Set();
 
-    const r = rows[0] || {};
+
+    for (const row of rows) {
+
+      if (row.customer) {
+        customers.add(row.customer);
+      }
+
+      if (!row.specification) continue;
+
+      let spec;
+
+      try {
+        spec = JSON.parse(row.specification);
+      } catch {
+        continue;
+      }
+
+      if (spec.partType)
+        productTypes.add(spec.partType);
+
+      if (spec.tubeDiameter)
+        tubeDia.add(spec.tubeDiameter);
+
+      if (spec.couplingFlangeOrientations)
+        cFlangeOrientation.add(
+          spec.couplingFlangeOrientations
+        );
+
+      if (spec.mountingDetailsCouplingFlange)
+        couplingFlange.add(
+          spec.mountingDetailsCouplingFlange
+        );
+
+      if (spec.series)
+        jointType.add(spec.series);
+
+      if (spec.mountingDetailsFlangeYoke)
+        flangeYoke.add(
+          spec.mountingDetailsFlangeYoke
+        );
+    }
 
 
-    const split = (str) => {
-      if (!str) return [];
-      return str.split(",").map(s => s.trim()).filter(Boolean);
+    return {
+      CUSTOMER_OPTIONS: [...customers],
+      PRODUCT_TYPE_OPTIONS: [...productTypes],
+      TUBE_DIA_OPTIONS: [...tubeDia],
+      C_FLANGE_ORIENTATION_OPTIONS: [...cFlangeOrientation],
+      COUPLING_FLANGE_OPTIONS: [...couplingFlange],
+      JOINT_TYPE_OPTIONS: [...jointType],
+      FLANGE_YOKE_OPTIONS: [...flangeYoke],
     };
-
-    const result = {
-      CUSTOMER_OPTIONS: split(r.customers),
-      PRODUCT_TYPE_OPTIONS: split(r.productTypes),
-      TUBE_DIA_OPTIONS: split(r.tubeDia),
-      C_FLANGE_ORIENTATION_OPTIONS: split(r.cFlangeOrientation),
-      COUPLING_FLANGE_OPTIONS: split(r.couplingFlange),
-      JOINT_TYPE_OPTIONS: split(r.jointType),
-      FLANGE_YOKE_OPTIONS: split(r.flangeYoke),
-    };
-
-
-    return result;
 
   } catch (error) {
     console.error("getDropdownOptions ERROR:", error);
