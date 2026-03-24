@@ -250,38 +250,42 @@
 
 
 
-import { query } from './db.js';
+import { query } from "./db.js";
 
-// ─── helpers ─────────────────────────────────────────
+// ───────────────── helpers ─────────────────
 
 async function tableExists(tableName) {
   try {
     const result = await query(`SHOW TABLES LIKE '${tableName}'`);
-    return Array.isArray(result) && result.length > 0;
-  } catch (error) {
-    console.log(`⚠️  Could not check table ${tableName}:`, error.message);
+    return result.length > 0;
+  } catch (err) {
+    console.log("table check error", err.message);
     return false;
   }
 }
 
-// ─── dynamic_fields ──────────────────────────────────
+// ───────────────── dynamic_fields ─────────────────
 
 async function createDynamicFieldsTable() {
   try {
     await query(`
       CREATE TABLE IF NOT EXISTS dynamic_fields (
+
         id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
 
-        product_fields JSON NOT NULL,
-        approval_fields JSON NOT NULL,
-        quality_verification_fields JSON NOT NULL,
+        product_fields LONGTEXT NOT NULL,
+        approval_fields LONGTEXT NOT NULL,
+        quality_verification_fields LONGTEXT NOT NULL,
 
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         ON UPDATE CURRENT_TIMESTAMP
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+      ) ENGINE=InnoDB
+      DEFAULT CHARSET=utf8mb4
+      COLLATE=utf8mb4_unicode_ci;
     `);
 
-    console.log('✅ dynamic_fields table created/verified');
+    console.log("✅ dynamic_fields created");
 
     const existing = await query(
       "SELECT id FROM dynamic_fields LIMIT 1"
@@ -289,7 +293,7 @@ async function createDynamicFieldsTable() {
 
     if (!existing.length) {
       await query(
-        `INSERT INTO dynamic_fields 
+        `INSERT INTO dynamic_fields
         (product_fields, approval_fields, quality_verification_fields)
         VALUES (?, ?, ?)`,
         [
@@ -301,21 +305,20 @@ async function createDynamicFieldsTable() {
 
       console.log("✅ dynamic_fields seeded");
     }
-  } catch (error) {
-    console.error(
-      "❌ Error creating dynamic_fields table:",
-      error.message
-    );
-    throw error;
+
+  } catch (err) {
+    console.log("dynamic_fields error", err.message);
+    throw err;
   }
 }
 
-// ─── products ────────────────────────────────────────
+// ───────────────── products ─────────────────
 
 async function createProductsTable() {
   try {
     await query(`
       CREATE TABLE IF NOT EXISTS products (
+
         id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
 
         part_number VARCHAR(100) NOT NULL UNIQUE,
@@ -335,9 +338,9 @@ async function createProductsTable() {
 
         edited TINYINT(1) DEFAULT 0,
 
-        edited_fields JSON,
-        specification JSON NOT NULL,
-        ppap_documents JSON,
+        edited_fields LONGTEXT,
+        specification LONGTEXT NOT NULL,
+        ppap_documents LONGTEXT,
 
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -350,31 +353,29 @@ async function createProductsTable() {
         INDEX idx_customer (customer),
         INDEX idx_status (status),
         INDEX idx_approved (approved),
-        INDEX idx_quality (quality_verified),
-        INDEX idx_created_at (created_at)
+        INDEX idx_quality (quality_verified)
 
       ) ENGINE=InnoDB
       DEFAULT CHARSET=utf8mb4
       COLLATE=utf8mb4_unicode_ci;
     `);
 
-    console.log("✅ products table created/verified");
-  } catch (error) {
-    console.error(
-      "❌ Error creating products table:",
-      error.message
-    );
-    throw error;
+    console.log("✅ products created");
+
+  } catch (err) {
+    console.log("products error", err.message);
+    throw err;
   }
 }
 
-// ─── scanned_products ────────────────────────────────
+// ───────────────── scanned_products ─────────────────
 
 async function createScannedProductsTable() {
   try {
+
     if (!(await tableExists("products"))) {
       throw new Error(
-        "products table must exist before scanned_products"
+        "products must exist before scanned_products"
       );
     }
 
@@ -408,63 +409,56 @@ async function createScannedProductsTable() {
         created_by VARCHAR(100),
         modified_by VARCHAR(100),
 
-        product_id INT UNSIGNED NULL,
+        product_id INT UNSIGNED,
 
-        scanned_specification JSON,
-        matched_fields JSON,
-        mismatched_fields JSON,
+        scanned_specification LONGTEXT,
+        matched_fields LONGTEXT,
+        mismatched_fields LONGTEXT,
 
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         ON UPDATE CURRENT_TIMESTAMP,
 
         FOREIGN KEY (product_id)
-          REFERENCES products(id)
-          ON DELETE SET NULL
-          ON UPDATE CASCADE,
-
-        INDEX idx_part_no (part_no),
-        INDEX idx_dispatch_date (dispatch_date),
-        INDEX idx_validation_status (validation_status),
-        INDEX idx_product_id (product_id),
-        INDEX idx_created_at (created_at)
+        REFERENCES products(id)
+        ON DELETE SET NULL
+        ON UPDATE CASCADE
 
       ) ENGINE=InnoDB
       DEFAULT CHARSET=utf8mb4
       COLLATE=utf8mb4_unicode_ci;
     `);
 
-    console.log(
-      "✅ scanned_products table created/verified"
-    );
-  } catch (error) {
-    console.error(
-      "❌ Error creating scanned_products table:",
-      error.message
-    );
-    throw error;
+    console.log("✅ scanned_products created");
+
+  } catch (err) {
+    console.log("scanned_products error", err.message);
+    throw err;
   }
 }
 
-// ─── bootstrap ───────────────────────────────────────
+// ───────────────── bootstrap ─────────────────
 
 export async function runBootstrap() {
-  console.log("🚀 Starting database bootstrap...");
+
+  console.log("🚀 bootstrap start");
 
   try {
+
     await query("SELECT 1");
 
-    console.log("✅ Database connection verified");
+    console.log("✅ DB connected");
 
     await createDynamicFieldsTable();
     await createProductsTable();
     await createScannedProductsTable();
 
-    console.log("🎉 Bootstrap completed successfully");
+    console.log("🎉 bootstrap done");
 
-    return true;
-  } catch (error) {
-    console.error("❌ Bootstrap failed:", error);
-    throw error;
+  } catch (err) {
+
+    console.log("❌ bootstrap failed", err);
+
+    throw err;
   }
 }
