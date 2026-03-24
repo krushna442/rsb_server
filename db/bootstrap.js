@@ -277,41 +277,160 @@ async function createDynamicFieldsTable() {
         approval_fields LONGTEXT NOT NULL,
         quality_verification_fields LONGTEXT NOT NULL,
 
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-ON UPDATE CURRENT_TIMESTAMP
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP
 
       ) ENGINE=InnoDB
       DEFAULT CHARSET=utf8mb4
       COLLATE=utf8mb4_unicode_ci;
     `);
 
-    console.log("✅ dynamic_fields created");
+    console.log("✅ dynamic_fields table created");
 
     const existing = await query(
       "SELECT id FROM dynamic_fields LIMIT 1"
     );
 
     if (!existing.length) {
+
       await query(
         `INSERT INTO dynamic_fields
         (product_fields, approval_fields, quality_verification_fields)
         VALUES (?, ?, ?)`,
         [
-          JSON.stringify([]),
-          JSON.stringify([]),
-          JSON.stringify([])
+
+          // ✅ product_fields (your original)
+          JSON.stringify([
+            { name: 'partNumber', type: 'text' },
+            { name: 'customer', type: 'text' },
+            { name: 'vendorCode', type: 'text' },
+            { name: 'partType', type: 'text' },
+            { name: 'partDescription', type: 'text' },
+            { name: 'series', type: 'text' },
+            { name: 'vehicleType', type: 'text' },
+            { name: 'status', type: 'text' },
+            { name: 'poNumber', type: 'text' },
+            { name: 'supplyDate', type: 'date' },
+            { name: 'sampleStatus', type: 'text' },
+            { name: 'sampleSupplyMode', type: 'text' },
+            { name: 'acceptedMailDate', type: 'date' },
+            { name: 'revNo', type: 'text' },
+
+            { name: 'tubeLength', type: 'number' },
+            { name: 'tubeDiameter', type: 'text' },
+            { name: 'partWeightKg', type: 'number' },
+            { name: 'totalLength', type: 'number' },
+            { name: 'noiseDeadenerLength', type: 'number' },
+            { name: 'availableNoiseDeadener', type: 'text' },
+            { name: 'rearHousingLength', type: 'number' },
+            { name: 'longForkLength', type: 'number' },
+            { name: 'pdcLength', type: 'number' },
+
+            { name: 'drawingNumber', type: 'text' },
+            { name: 'drawingModel', type: 'text' },
+
+            { name: 'fepPressHStockPositions', type: 'text' },
+            { name: 'frontEndPieceDetails', type: 'text' },
+            { name: 'sfDetails', type: 'text' },
+            { name: 'couplingFlangeOrientations', type: 'text' },
+            { name: 'hexBoltNutTighteningTorque', type: 'text' },
+            { name: 'loctiteGradeUse', type: 'text' },
+            { name: 'cbKitDetails', type: 'text' },
+            { name: 'slipDetails', type: 'text' },
+            { name: 'greaseableOrNonGreaseable', type: 'text' },
+            { name: 'mountingDetailsFlangeYoke', type: 'text' },
+            { name: 'mountingDetailsCouplingFlange', type: 'text' },
+            { name: 'iaBellowDetails', type: 'text' },
+
+            { name: 'balancingRpm', type: 'number' },
+            { name: 'unbalanceInCmg', type: 'number' },
+            { name: 'unbalanceInGram', type: 'number' },
+            { name: 'unbalanceInGram75Percent', type: 'number' },
+
+            { name: 'trsoDate', type: 'date' },
+            { name: 'trsoModel', type: 'text' },
+            { name: 'trsoRev', type: 'text' },
+
+            { name: 'iqaDate', type: 'date' },
+            { name: 'iqaModel', type: 'text' },
+            { name: 'iqaVcNumber', type: 'text' },
+
+            { name: 'ppapIntimateDate', type: 'date' },
+            { name: 'ppapClosingDate', type: 'date' },
+            { name: 'ppapStatus', type: 'text' }
+
+          ]),
+
+          // ✅ approval_fields
+          JSON.stringify([
+            'customer',
+            'vendorCode',
+            'poNumber',
+            'supplyDate',
+            'sampleStatus',
+            'sampleSupplyMode',
+            'acceptedMailDate',
+            'trsoDate',
+            'trsoModel',
+            'trsoRev',
+            'iqaDate',
+            'iqaModel',
+            'iqaVcNumber',
+            'ppapIntimateDate',
+            'ppapClosingDate',
+            'ppapStatus',
+            'drawingNumber',
+            'drawingModel',
+            'vehicleType',
+            'partNumber',
+            'partDescription'
+          ]),
+
+          // ✅ quality_verification_fields
+          JSON.stringify([
+            'tubeDiameter',
+            'series',
+            'tubeLength',
+            'partType',
+            'partWeightKg',
+            'noiseDeadenerLength',
+            'availableNoiseDeadener',
+            'fepPressHStockPositions',
+            'frontEndPieceDetails',
+            'rearHousingLength',
+            'longForkLength',
+            'sfDetails',
+            'pdcLength',
+            'couplingFlangeOrientations',
+            'hexBoltNutTighteningTorque',
+            'loctiteGradeUse',
+            'cbKitDetails',
+            'slipDetails',
+            'greaseableOrNonGreaseable',
+            'mountingDetailsFlangeYoke',
+            'mountingDetailsCouplingFlange',
+            'iaBellowDetails',
+            'totalLength',
+            'balancingRpm',
+            'unbalanceInCmg',
+            'unbalanceInGram',
+            'unbalanceInGram75Percent',
+            'revNo'
+          ])
         ]
       );
 
-      console.log("✅ dynamic_fields seeded");
+      console.log("✅ dynamic_fields seeded with full config");
     }
 
-  } catch (err) {
-    console.log("dynamic_fields error", err.message);
-    throw err;
+  } catch (error) {
+    console.error(
+      "❌ Error creating dynamic_fields table:",
+      error.message
+    );
+    throw error;
   }
 }
-
 // ───────────────── products ─────────────────
 
 async function createProductsTable() {
