@@ -1,14 +1,26 @@
 import { query, queryOne, execute } from '../db/db.js';
+import { parseScanText } from './parseScanText.js';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
+
+const parseJSON = (data, fallback = '{}') => {
+  if (typeof data === 'string') {
+    try {
+      return JSON.parse(data);
+    } catch {
+      return JSON.parse(fallback);
+    }
+  }
+  return data ?? JSON.parse(fallback);
+};
 
 const parseJsonCols = (row) => {
   if (!row) return null;
   return {
     ...row,
-    scanned_specification: JSON.parse(row.scanned_specification ?? '{}'),
-    matched_fields:        JSON.parse(row.matched_fields        ?? '[]'),
-    mismatched_fields:     JSON.parse(row.mismatched_fields     ?? '[]'),
+    scanned_specification: parseJSON(row.scanned_specification, '{}'),
+    matched_fields:        parseJSON(row.matched_fields, '[]'),
+    mismatched_fields:     parseJSON(row.mismatched_fields, '[]'),
   };
 };
 
@@ -100,8 +112,10 @@ export const findAllScans = async (filters = {}) => {
     }
 
     // pagination
-    sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?";
-    values.push(Number(limit), (Number(page) - 1) * Number(limit));
+    const parsedLimit = Math.max(1, Number(limit) || 20);
+    const parsedPage = Math.max(1, Number(page) || 1);
+    const offsetNum = (parsedPage - 1) * parsedLimit;
+    sql += ` ORDER BY created_at DESC LIMIT ${parsedLimit} OFFSET ${offsetNum}`;
 
     const rows = await query(sql, values);
 
@@ -214,88 +228,96 @@ export const findScanById = async (id) => {
 };
 
 // ─── CREATE (with built-in validation) ───────────────────────────────────────
-// Part types where C_Flange Orient and Coupling Flange are skipped
-// (they will be NA/null in master for REAR and others)
 
+
+/**
+ * runValidation.js
+ *
+ * Validates a scanned product against its master record.
+ * Now includes revNo and vendorCode checks drawn from the parsed barcode.
+ */
+
+
+// ---------------------------------------------------------------------------
+// Field map – extend / adjust to your actual DB column names
+// ---------------------------------------------------------------------------
 const SCAN_FIELD_MAP = [
-  {
-    scanKey:   'customer_name',
-    masterKey: 'customer',
-    label:     'Customer Name',
-    isRoot:    true,
-  },
-  {
-    scanKey:   'product_type',
-    masterKey: 'partType',
-    label:     'Product Type',
-    isRoot:    true,
-  },
-  {
-    scanKey:   'tubeDiameter',
-    masterKey: 'tubeDiameter',
-    label:     'Tube Dia & Thickness',
-  },
-  {
-    scanKey:   'tubeLength',
-    masterKey: 'tubeLength',
-    label:     'Tube Length',
-  },
-  {
-    scanKey:   'jointType',
-    masterKey: 'sfDetails',
-    label:     'Joint Type',
-  },
-  {
-    scanKey:        'cFlangeOrient',
-    masterKey:      'couplingFlangeOrientations',
-    label:          'C_Flange Orient',
-    skipIfNotFront: true,
-  },
-  {
-    scanKey:   'flangeYoke',
-    masterKey: 'mountingDetailsFlangeYoke',
-    label:     'Flange Yoke',
-  },
-  {
-    scanKey:        'couplingFlange',
-    masterKey:      'mountingDetailsCouplingFlange',
-    label:          'Coupling Flange',
-    skipIfNotFront: true,
-  },
+  { label: 'Tube Diameter',      masterKey: 'tubeDiameter',    scanKey: 'tubeDiameter',    isRoot: false, skipIfNotFront: false },
+  { label: 'Tube Length',        masterKey: 'tubeLength',      scanKey: 'tubeLength',      isRoot: false, skipIfNotFront: false },
+  { label: 'Series',             masterKey: 'series',          scanKey: 'series',          isRoot: false, skipIfNotFront: false },
+  { label: 'C-Flange Orient',    masterKey: 'cFlangeOrient',   scanKey: 'cFlangeOrient',   isRoot: false, skipIfNotFront: true  },
+  { label: 'Flange Yoke',        masterKey: 'flangeYoke',      scanKey: 'flangeYoke',      isRoot: false, skipIfNotFront: true  },
+  { label: 'Coupling Flange',    masterKey: 'couplingFlange',  scanKey: 'couplingFlange',  isRoot: false, skipIfNotFront: true  },
+  { label: 'Customer',           masterKey: 'customer',        scanKey: 'customer_name',   isRoot: true,  skipIfNotFront: false },
 ];
 
-// Part types where C_Flange Orient and Coupling Flange are skipped
 const FRONT_MIDDLE_TYPES = ['FRONT', 'MIDDLE'];
 
+// ---------------------------------------------------------------------------
+// Vendor code comparison helper
+// Handles comma-separated master vendor codes e.g. "7205761,7201012"
+// ---------------------------------------------------------------------------
+function vendorMatches(masterVendorRaw = '', scannedVendor = '') {
+  if (!masterVendorRaw || !scannedVendor) return false;
+
+  const masterCodes = masterVendorRaw
+    .split(',')
+    .map(v => v.trim().toUpperCase());
+
+  const scanned = scannedVendor.trim().toUpperCase();
+  return masterCodes.includes(scanned);
+}
+
+// ---------------------------------------------------------------------------
+// Rev-no comparison helper
+// Normalises both sides (strips "Rev No#" prefix, trims spaces)
+// ---------------------------------------------------------------------------
+function normaliseRev(raw = '') {
+  let s = raw.replace(/rev\s*no\s*/i, '').trim();
+  if (!s.startsWith('#')) s = '#' + s;
+  return s.toUpperCase().replace(/\s+/g, '');
+}
+
+function revMatches(masterRev = '', scannedRev = '') {
+  if (!masterRev || !scannedRev) return false;
+  return normaliseRev(masterRev) === normaliseRev(scannedRev);
+}
+
+// ---------------------------------------------------------------------------
+// Main validation
+// ---------------------------------------------------------------------------
+
+/**
+ * @param {object} masterSpec      – masterProduct.specification
+ * @param {object} masterProduct   – full master record (includes .customer, .vendorCode, .revNo)
+ * @param {object} scanData        – request body (includes scanned_text, scanned_specification …)
+ * @returns {{ matched: string[], mismatched: string[], status: 'pass'|'fail', remarks: string }}
+ */
 export const runValidation = (masterSpec, masterProduct, scanData) => {
   const matched    = [];
   const mismatched = [];
 
-  const partType      = (masterSpec.partType ?? '').toString().trim().toUpperCase();
+  const partType      = (masterSpec?.partType ?? '').toString().trim().toUpperCase();
   const isFrontMiddle = FRONT_MIDDLE_TYPES.includes(partType);
 
+  // ------------------------------------------------------------------
+  // 1. Spec-field validation (existing logic, unchanged)
+  // ------------------------------------------------------------------
   for (const field of SCAN_FIELD_MAP) {
-
-    // 1. Skip flange fields for non-FRONT/MIDDLE parts
     if (field.skipIfNotFront && !isFrontMiddle) continue;
 
-    // 2. Get the scanned value from payload
     const scannedVal = field.isRoot
       ? scanData[field.scanKey]
       : scanData.scanned_specification?.[field.scanKey];
 
-    // 3. If field was NOT sent in the payload at all → skip it entirely
     if (scannedVal === undefined) continue;
 
-    // 4. Get master value
     const masterVal = field.isRoot && field.masterKey === 'customer'
       ? masterProduct.customer
       : masterSpec[field.masterKey];
 
-    // 5. If master has no value for this field → skip (can't compare)
     if (masterVal === undefined || masterVal === null) continue;
 
-    // 6. Compare — case-insensitive, trimmed strings
     const masterStr  = String(masterVal).trim().toUpperCase();
     const scannedStr = String(scannedVal).trim().toUpperCase();
 
@@ -306,8 +328,49 @@ export const runValidation = (masterSpec, masterProduct, scanData) => {
     }
   }
 
-  const status = mismatched.length === 0 ? 'pass' : 'fail';
+  // ------------------------------------------------------------------
+  // 2. Barcode-level validation: revNo + vendorCode
+  //    Parse the raw scanned_text to extract these fields
+  // ------------------------------------------------------------------
+  const parsed = parseScanText(scanData.scanned_text ?? '');
 
+  if (parsed) {
+    // --- Vendor Code ---
+    const masterVendor = (masterProduct.vendorCode ?? '').trim();
+    if (masterVendor && parsed.vendorCode) {
+      if (vendorMatches(masterVendor, parsed.vendorCode)) {
+        matched.push('Vendor Code');
+      } else {
+        mismatched.push('Vendor Code');
+      }
+    }
+
+    // --- Rev No ---
+    const masterRev = (masterProduct.revNo ?? masterSpec?.revNo ?? '').trim();
+    if (masterRev && parsed.revNo) {
+      if (revMatches(masterRev, parsed.revNo)) {
+        matched.push('Rev No');
+      } else {
+        mismatched.push('Rev No');
+      }
+    }
+
+    // --- Part Sl No (expose parsed value back to scanData so createScan can use it) ---
+    // Only override if frontend didn't send one
+    if (!scanData.part_sl_no && parsed.partSlNo) {
+      scanData.part_sl_no = parsed.partSlNo;
+    }
+
+    // --- Dispatch date fallback from barcode ---
+    if (!scanData.dispatch_date && parsed.dispatchDate) {
+      scanData.dispatch_date = parsed.dispatchDate;
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // 3. Build result
+  // ------------------------------------------------------------------
+  const status = mismatched.length === 0 ? 'pass' : 'fail';
   const remarks = status === 'pass'
     ? 'Details matched successfully'
     : `Mismatch found in: ${mismatched.join(', ')}`;

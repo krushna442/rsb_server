@@ -122,7 +122,7 @@ export const scan = async (req, res) => {
     const data = await createScan(
       { ...req.body, dispatch_date: nowIST },
       masterProduct,
-      req.user?.username ?? null
+      req.user?.name ?? null
     );
 
     res.status(201).json({ success: true, data });
@@ -137,7 +137,7 @@ export const patchRemarks = async (req, res) => {
     const data = await updateScanRemarks(
       req.params.id,
       req.body.remarks,
-      req.user?.username ?? null
+      req.user?.name ?? null
     );
     res.json({ success: true, data });
   } catch (error) {
@@ -151,7 +151,7 @@ export const patchRejected = async (req, res) => {
     const data = await updateRejectedFlag(
       req.params.id,
       req.body.is_rejected,
-      req.user?.username ?? null
+      req.user?.name ?? null
     );
     res.json({ success: true, data });
   } catch (error) {

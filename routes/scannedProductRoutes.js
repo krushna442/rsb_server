@@ -11,7 +11,7 @@ import {
   summaryBetweenDates,
   currentMonthSummary,
 } from '../controllers/scannedProductController.js';
-
+import { protectRoute } from '../middlewares/authMiddleware.js';
 const router = express.Router();
 
 // ── Stats ─────────────────────────────────────────────────────────────────────
@@ -19,12 +19,12 @@ router.get('/summary/:date', dailySummary);   // ?date=YYYY-MM-DD
 
 // ── Core ──────────────────────────────────────────────────────────────────────
 router.get('/',    listScans);       // ?dispatch_date=&shift=&part_no=&validation_status=&page=&limit=
-router.post('/scan', scan);          // Production / QA scan entry point
-router.get('/:id', getScan);
+router.post('/scan', protectRoute, scan);          // Production / QA scan entry point
+router.get('/:id', protectRoute, getScan);
 
 // ── Patches ───────────────────────────────────────────────────────────────────
-router.patch('/:id/remarks', patchRemarks);   // { remarks }
-router.patch('/:id/reject',  patchRejected);  // { is_rejected: true|false }
+router.patch('/:id/remarks', protectRoute, patchRemarks);   // { remarks }
+router.patch('/:id/reject',  protectRoute, patchRejected);  // { is_rejected: true|false }
 
 
 router.get("/summary/current-month", currentMonthSummary);

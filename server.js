@@ -8,7 +8,10 @@ import { runBootstrap } from "./db/bootstrap.js";
 
 import dynamicFieldRoutes from "./routes/dynamicFieldRoutes.js";
 import productRoutes from "./routes/productRoutes.js";
+import productImageRoutes from "./routes/productImageRoutes.js";
 import scannedProductRoutes from "./routes/scannedProductRoutes.js";
+import userRoutes from "./routes/userRoutes.js";
+import {initShiftReportCrons} from "./utils/Shiftreportcron.js";
 
 dotenv.config();
 
@@ -19,7 +22,7 @@ const PORT = process.env.PORT || 5000;
 // ✅ CORS setup
 app.use(
   cors({
-    origin: ["http://localhost:5173", "http://localhost:3000","https://rsb-global.vercel.app"],
+    origin: ["http://localhost:5173", "http://localhost:3000","http://10.99.45.17:3000","http://192.168.1.10:3000"],
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
     allowedHeaders: ["Content-Type", "Authorization"],
@@ -47,7 +50,9 @@ async function startServer() {
     // routes
     app.use("/api/dynamic-fields", dynamicFieldRoutes);
     app.use("/api/products", productRoutes);
+    app.use("/api/product-images", productImageRoutes);
     app.use("/api/scanned-products", scannedProductRoutes);
+    app.use("/api/users", userRoutes);
 
     app.get("/", (req, res) => {
       res.send("API running...");
@@ -64,7 +69,7 @@ async function startServer() {
 }
 
 startServer();
-
+initShiftReportCrons();
 
 // graceful shutdown
 process.on("SIGINT", async () => {

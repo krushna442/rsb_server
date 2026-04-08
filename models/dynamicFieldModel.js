@@ -1,19 +1,36 @@
 import { query, queryOne, execute } from '../db/db.js';
 
-// ─── always row id=1 (single config row) ─────────────────────────────────────
+const parseJSON = (data, fallback = '[]') => {
+  if (typeof data === 'string') {
+    try { return JSON.parse(data); }
+    catch { return JSON.parse(fallback); }
+  }
+  return data ?? JSON.parse(fallback);
+};
 
-/**
- * Get the active dynamic fields config
- */
+// ─── helpers ────────────────────────────────────────────────────────────────
+
+const VALID_CATEGORIES = ['individual', 'ppap'];
+
+const validateCategory = (category) => {
+  if (!VALID_CATEGORIES.includes(category)) {
+    throw new Error(`Invalid category "${category}". Must be one of: ${VALID_CATEGORIES.join(', ')}`);
+  }
+};
+
+// ─── getConfig ───────────────────────────────────────────────────────────────
+
 export const getConfig = async () => {
   try {
     const row = await queryOne('SELECT * FROM dynamic_fields LIMIT 1');
     if (!row) throw new Error('dynamic_fields config row missing — run bootstrap.');
     return {
       id:                           row.id,
-      product_fields:               JSON.parse(row.product_fields               ?? '[]'),
-      approval_fields:              JSON.parse(row.approval_fields              ?? '[]'),
-      quality_verification_fields:  JSON.parse(row.quality_verification_fields  ?? '[]'),
+      product_fields:               parseJSON(row.product_fields, '[]'),
+      approval_fields:              parseJSON(row.approval_fields, '[]'),
+      quality_verification_fields:  parseJSON(row.quality_verification_fields, '[]'),
+      important_fields:             parseJSON(row.important_fields, '[]'),
+      documents:                    parseJSON(row.documents, '[]'),
       updated_at:                   row.updated_at,
     };
   } catch (error) {
@@ -22,126 +39,58 @@ export const getConfig = async () => {
   }
 };
 
-/**
- * Update any subset of the three JSON columns
- * @param {Object} patch - { product_fields?, approval_fields?, quality_verification_fields? }
- */
+// ─── updateConfig (existing — product/approval/quality) ──────────────────────
+
 export const updateConfig = async (patch) => {
   try {
-    // Load current config first — we need it for all the logic below
     const current = await getConfig();
- 
+
     let newProductFields             = [...current.product_fields];
     let newApprovalFields            = [...current.approval_fields];
     let newQualityVerificationFields = [...current.quality_verification_fields];
- 
-    // ── USE CASE 1: Adding new field(s) to product_fields ────────────────────
+
+    // USE CASE 1: product_fields
     if (patch.product_fields !== undefined) {
-      const incomingFields = patch.product_fields; // array of { name, type }
- 
-      if (!Array.isArray(incomingFields)) {
+      if (!Array.isArray(patch.product_fields))
         throw new Error('product_fields must be an array of { name, type } objects');
-      }
- 
-      // field_category tells us which verification stage the new field belongs to
-      const category = patch.field_category; // "approval_fields" | "quality_verification_fields" | undefined
- 
-      if (category !== undefined) {
-        // Validate category value
-        if (!['approval_fields', 'quality_verification_fields'].includes(category)) {
-          throw new Error('field_category must be "approval_fields" or "quality_verification_fields"');
-        }
- 
-        for (const fieldObj of incomingFields) {
-          if (!fieldObj.name) throw new Error('Each field in product_fields must have a name');
- 
-          // Append to product_fields only if not already present
-          const alreadyInProduct = newProductFields.some(f => f.name === fieldObj.name);
-          if (!alreadyInProduct) {
-            newProductFields.push({ name: fieldObj.name, type: fieldObj.type ?? 'text' });
-          }
- 
-          // Add to the specified category (avoid duplicates)
-          if (category === 'approval_fields') {
-            if (!newApprovalFields.includes(fieldObj.name)) {
-              newApprovalFields.push(fieldObj.name);
-            }
-            // Remove from the other category if it was there
-            newQualityVerificationFields = newQualityVerificationFields.filter(
-              f => f !== fieldObj.name
-            );
-          } else {
-            if (!newQualityVerificationFields.includes(fieldObj.name)) {
-              newQualityVerificationFields.push(fieldObj.name);
-            }
-            // Remove from the other category if it was there
-            newApprovalFields = newApprovalFields.filter(f => f !== fieldObj.name);
-          }
-        }
-      } else {
-        // No field_category — just replace product_fields as-is (USE CASE 3)
-        newProductFields = incomingFields;
+
+      for (const fieldObj of patch.product_fields) {
+        if (!fieldObj.name) throw new Error('Each field in product_fields must have a name');
+        const alreadyExists = newProductFields.some(f => f.name === fieldObj.name);
+        if (!alreadyExists) newProductFields.push({ name: fieldObj.name, type: fieldObj.type ?? 'text' });
       }
     }
- 
-    // ── USE CASE 2: Moving fields between approval ↔ quality_verification ────
+
+    // USE CASE 2: approval_fields
     if (patch.approval_fields !== undefined) {
-      if (!Array.isArray(patch.approval_fields)) {
+      if (!Array.isArray(patch.approval_fields))
         throw new Error('approval_fields must be an array of field name strings');
-      }
- 
-      // Validate all names exist in product_fields
+
       const productFieldNames = newProductFields.map(f => f.name);
       for (const name of patch.approval_fields) {
-        if (!productFieldNames.includes(name)) {
-          throw new Error(
-            `Field "${name}" is not in product_fields. Add it to product_fields first.`
-          );
-        }
+        if (!productFieldNames.includes(name))
+          throw new Error(`Field "${name}" is not in product_fields. Add it to product_fields first.`);
       }
- 
-      // Find newly added fields (not in current approval_fields)
-      const addedToApproval = patch.approval_fields.filter(
-        name => !current.approval_fields.includes(name)
-      );
- 
-      // Remove those from quality_verification_fields (mutual exclusion)
-      newQualityVerificationFields = newQualityVerificationFields.filter(
-        name => !addedToApproval.includes(name)
-      );
- 
+      const addedToApproval = patch.approval_fields.filter(n => !current.approval_fields.includes(n));
+      newQualityVerificationFields = newQualityVerificationFields.filter(n => !addedToApproval.includes(n));
       newApprovalFields = patch.approval_fields;
     }
- 
+
+    // USE CASE 3: quality_verification_fields
     if (patch.quality_verification_fields !== undefined) {
-      if (!Array.isArray(patch.quality_verification_fields)) {
+      if (!Array.isArray(patch.quality_verification_fields))
         throw new Error('quality_verification_fields must be an array of field name strings');
-      }
- 
-      // Validate all names exist in product_fields
+
       const productFieldNames = newProductFields.map(f => f.name);
       for (const name of patch.quality_verification_fields) {
-        if (!productFieldNames.includes(name)) {
-          throw new Error(
-            `Field "${name}" is not in product_fields. Add it to product_fields first.`
-          );
-        }
+        if (!productFieldNames.includes(name))
+          throw new Error(`Field "${name}" is not in product_fields. Add it to product_fields first.`);
       }
- 
-      // Find newly added fields (not in current quality_verification_fields)
-      const addedToQuality = patch.quality_verification_fields.filter(
-        name => !current.quality_verification_fields.includes(name)
-      );
- 
-      // Remove those from approval_fields (mutual exclusion)
-      newApprovalFields = newApprovalFields.filter(
-        name => !addedToQuality.includes(name)
-      );
- 
+      const addedToQuality = patch.quality_verification_fields.filter(n => !current.quality_verification_fields.includes(n));
+      newApprovalFields = newApprovalFields.filter(n => !addedToQuality.includes(n));
       newQualityVerificationFields = patch.quality_verification_fields;
     }
- 
-    // ── Nothing changed at all ────────────────────────────────────────────────
+
     if (
       patch.product_fields === undefined &&
       patch.approval_fields === undefined &&
@@ -149,8 +98,7 @@ export const updateConfig = async (patch) => {
     ) {
       throw new Error('Nothing to update. Send at least one of: product_fields, approval_fields, quality_verification_fields');
     }
- 
-    // ── Persist ───────────────────────────────────────────────────────────────
+
     await execute(
       `UPDATE dynamic_fields
        SET product_fields = ?, approval_fields = ?, quality_verification_fields = ?
@@ -161,20 +109,149 @@ export const updateConfig = async (patch) => {
         JSON.stringify(newQualityVerificationFields),
       ]
     );
- 
+
     return getConfig();
   } catch (error) {
     console.error('Error in updateConfig:', error);
     throw error;
   }
 };
- 
+
+// ─── important_fields ────────────────────────────────────────────────────────
 
 /**
- * Convenience: return only field names for a given stage
- * @param {'approval'|'quality_verification'} stage
- * @returns {Promise<string[]>}
+ * Add field names to important_fields.
+ * Only accepts names that already exist in product_fields.
+ * Silently skips duplicates.
+ * @param {string[]} names
  */
+export const addImportantFields = async (names) => {
+  try {
+    if (!Array.isArray(names) || names.length === 0)
+      throw new Error('names must be a non-empty array of field name strings');
+
+    const current = await getConfig();
+    const productFieldNames = current.product_fields.map(f => f.name);
+
+    for (const name of names) {
+      if (!productFieldNames.includes(name))
+        throw new Error(`Field "${name}" is not in product_fields. Add it to product_fields first.`);
+    }
+
+    const updated = [...current.important_fields];
+    for (const name of names) {
+      if (!updated.includes(name)) updated.push(name);
+    }
+
+    await execute(
+      'UPDATE dynamic_fields SET important_fields = ? WHERE id = 1',
+      [JSON.stringify(updated)]
+    );
+
+    return getConfig();
+  } catch (error) {
+    console.error('Error in addImportantFields:', error);
+    throw error;
+  }
+};
+
+/**
+ * Remove field names from important_fields.
+ * Silently ignores names that are not present.
+ * @param {string[]} names
+ */
+export const deleteImportantFields = async (names) => {
+  try {
+    if (!Array.isArray(names) || names.length === 0)
+      throw new Error('names must be a non-empty array of field name strings');
+
+    const current = await getConfig();
+    const updated = current.important_fields.filter(n => !names.includes(n));
+
+    await execute(
+      'UPDATE dynamic_fields SET important_fields = ? WHERE id = 1',
+      [JSON.stringify(updated)]
+    );
+
+    return getConfig();
+  } catch (error) {
+    console.error('Error in deleteImportantFields:', error);
+    throw error;
+  }
+};
+
+// ─── documents ───────────────────────────────────────────────────────────────
+
+/**
+ * Add documents. Each entry must have { name, category }.
+ * category must be 'individual' or 'ppap'.
+ * Duplicate (name + category) pairs are silently skipped.
+ * @param {{ name: string, category: string }[]} docs
+ */
+export const addDocuments = async (docs) => {
+  try {
+    if (!Array.isArray(docs) || docs.length === 0)
+      throw new Error('docs must be a non-empty array of { name, category } objects');
+
+    for (const doc of docs) {
+      if (!doc.name) throw new Error('Each document must have a name');
+      validateCategory(doc.category);
+    }
+
+    const current = await getConfig();
+    const updated = [...current.documents];
+
+    for (const doc of docs) {
+      const exists = updated.some(d => d.name === doc.name && d.category === doc.category);
+      if (!exists) updated.push({ name: doc.name, category: doc.category });
+    }
+
+    await execute(
+      'UPDATE dynamic_fields SET documents = ? WHERE id = 1',
+      [JSON.stringify(updated)]
+    );
+
+    return getConfig();
+  } catch (error) {
+    console.error('Error in addDocuments:', error);
+    throw error;
+  }
+};
+
+/**
+ * Delete documents by name + category pair(s).
+ * Silently ignores pairs that don't exist.
+ * @param {{ name: string, category: string }[]} docs
+ */
+export const deleteDocuments = async (docs) => {
+  try {
+    if (!Array.isArray(docs) || docs.length === 0)
+      throw new Error('docs must be a non-empty array of { name, category } objects');
+
+    for (const doc of docs) {
+      if (!doc.name) throw new Error('Each document must have a name');
+      validateCategory(doc.category);
+    }
+
+    const current = await getConfig();
+    const updated = current.documents.filter(
+      d => !docs.some(del => del.name === d.name && del.category === d.category)
+    );
+
+    await execute(
+      'UPDATE dynamic_fields SET documents = ? WHERE id = 1',
+      [JSON.stringify(updated)]
+    );
+
+    return getConfig();
+  } catch (error) {
+    console.error('Error in deleteDocuments:', error);
+    throw error;
+  }
+};
+
+// ─── convenience ─────────────────────────────────────────────────────────────
+
 export const getFieldNamesForStage = async (stage) => {
   try {
     const config = await getConfig();

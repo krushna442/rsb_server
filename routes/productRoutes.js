@@ -12,10 +12,13 @@ import {
   qualityVerifyProduct,
   importProducts,
   removeProduct,
-    addPpapDocument,
-  deletePpapDocument,
+  addDocument,
+  deleteDocument,
   productDropdownOptions,
+  inactiveProduct,
+  markDocumentNotRequired,
 } from '../controllers/productController.js';
+import { protectRoute } from '../middlewares/authMiddleware.js';
 
 const router = express.Router();
 
@@ -26,26 +29,30 @@ router.post('/import',            importProducts);
 
 // ── CRUD ─────────────────────────────────────────────────────────────────────
 router.get('/',       listProducts);
-router.post('/',      addProduct);
+router.post('/', protectRoute, addProduct);
 router.get('/:id',    getProduct);
-router.put('/:id',    editProduct);
+router.put('/:id', protectRoute, editProduct);
 
-router.delete('/:id', removeProduct);
+router.delete('/:id', protectRoute, removeProduct);
 
 // ── Workflow ─────────────────────────────────────────────────────────────────
-router.put('/:id/approval', approveProduct);          // { status: 'approved'|'rejected'|'pending' }
-router.put('/:id/quality',  qualityVerifyProduct);    // { status: 'approved'|'rejected'|'pending' }
+router.put('/:id/approval', protectRoute, approveProduct);          // { status: 'approved'|'rejected'|'pending' }
+router.put('/:id/quality', protectRoute, qualityVerifyProduct);    // { status: 'approved'|'rejected'|'pending' }
 
-//ppap documents 
+// ── Documents (categorized: individual / ppap) ──────────────────────────────
+// Upload:  PUT  /products/:id/documents   body: { name, category }  + file
+// Delete:  DEL  /products/:id/documents/:category/:name
 router.put(
-  "/:id/ppap",
+  "/:id/documents",
   uploadDocument.any(),
-  addPpapDocument
+  addDocument
 );
+router.delete("/:id/documents/:category/:name", deleteDocument);
+// ── Mark document as not required ──────────────────────────────────────────
+// PATCH /products/:id/documents/:category/:name/not-required
+router.patch("/:id/documents/:category/:name/not-required", markDocumentNotRequired);
 
-// delete
-router.delete("/:id/ppap/:name", deletePpapDocument);
-
+router.put('/:id/inactive', protectRoute, inactiveProduct);
 
 router.get("/dropdown/options", productDropdownOptions);
 

@@ -1,585 +1,337 @@
-// import { query } from './db.js';
+import { query } from './db.js';
 
-// // ─── helpers ─────────────────────────────────────────────────────────────────
-
-// async function tableExists(tableName) {
-//   try {
-//     const result = await query(`SHOW TABLES LIKE '${tableName}'`);
-//     return Array.isArray(result) && result.length > 0;
-//   } catch (error) {
-//     console.log(`⚠️  Could not check table ${tableName}:`, error.message);
-//     return false;
-//   }
-// }
-
-// // ─── table creators ───────────────────────────────────────────────────────────
-
-// async function createDynamicFieldsTable() {
-//   try {
-//     await query(`
-//       CREATE TABLE IF NOT EXISTS dynamic_fields (
-//         id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-//         product_fields              JSON NOT NULL DEFAULT ('[]'),
-//         approval_fields             JSON NOT NULL DEFAULT ('[]'),
-//         quality_verification_fields JSON NOT NULL DEFAULT ('[]'),
-//         updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-//       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-//     `);
-//     console.log('✅ dynamic_fields table created/verified');
-
-//     // Seed the one canonical config row if it doesn't exist yet
-//     const existing = await query('SELECT id FROM dynamic_fields LIMIT 1');
-//     if (!existing.length) {
-//       await query(
-//         'INSERT INTO dynamic_fields (product_fields, approval_fields, quality_verification_fields) VALUES (?, ?, ?)',
-//         [
-//           // ── product_fields ──────────────────────────────────────────────────
-//           JSON.stringify([
-//             // Identification & Admin
-//             { name: 'partNumber',              type: 'text'   },
-//             { name: 'customer',                type: 'text'   },
-//             { name: 'vendorCode',              type: 'text'   },
-//             { name: 'partType',                type: 'text'   },
-//             { name: 'partDescription',         type: 'text'   },
-//             { name: 'series',                  type: 'text'   },
-//             { name: 'vehicleType',             type: 'text'   },
-//             { name: 'status',                  type: 'text'   },
-//             { name: 'poNumber',                type: 'text'   },
-//             { name: 'supplyDate',              type: 'date'   },
-//             { name: 'sampleStatus',            type: 'text'   },
-//             { name: 'sampleSupplyMode',        type: 'text'   },
-//             { name: 'acceptedMailDate',        type: 'date'   },
-//             { name: 'revNo', type: 'text' },
-//             // Dimensional
-//             { name: 'tubeLength',              type: 'number' },
-//             { name: 'tubeDiameter',            type: 'text'   },
-//             { name: 'partWeightKg',            type: 'number' },
-//             { name: 'totalLength',             type: 'number' },
-//             { name: 'noiseDeadenerLength',     type: 'number' },
-//             { name: 'availableNoiseDeadener',  type: 'text'   },
-//             { name: 'rearHousingLength',       type: 'number' },
-//             { name: 'longForkLength',          type: 'number' },
-//             { name: 'pdcLength',               type: 'number' },
-//             // Drawing
-//             { name: 'drawingNumber',           type: 'text'   },
-//             { name: 'drawingModel',            type: 'text'   },
-//             // Assembly / Fitment
-//             { name: 'fepPressHStockPositions',       type: 'text' },
-//             { name: 'frontEndPieceDetails',          type: 'text' },
-//             { name: 'sfDetails',                     type: 'text' },
-//             { name: 'couplingFlangeOrientations',    type: 'text' },
-//             { name: 'hexBoltNutTighteningTorque',    type: 'text' },
-//             { name: 'loctiteGradeUse',               type: 'text' },
-//             { name: 'cbKitDetails',                  type: 'text' },
-//             { name: 'slipDetails',                   type: 'text' },
-//             { name: 'greaseableOrNonGreaseable',     type: 'text' },
-//             { name: 'mountingDetailsFlangeYoke',     type: 'text' },
-//             { name: 'mountingDetailsCouplingFlange', type: 'text' },
-//             { name: 'iaBellowDetails',               type: 'text' },
-//             // Balancing
-//             { name: 'balancingRpm',            type: 'number' },
-//             { name: 'unbalanceInCmg',          type: 'number' },
-//             { name: 'unbalanceInGram',         type: 'number' },
-//             { name: 'unbalanceInGram75Percent',type: 'number' },
-//             // TRSO
-//             { name: 'trsoDate',  type: 'date' },
-//             { name: 'trsoModel', type: 'text' },
-//             { name: 'trsoRev',   type: 'text' },
-//             // IQA
-//             { name: 'iqaDate',     type: 'date' },
-//             { name: 'iqaModel',    type: 'text' },
-//             { name: 'iqaVcNumber', type: 'text' },
-//             // PPAP
-//             { name: 'ppapIntimateDate', type: 'date' },
-//             { name: 'ppapClosingDate',  type: 'date' },
-//             { name: 'ppapStatus',       type: 'text' },
-//           ]),
-
-//           // ── approval_fields (23 fields) ─────────────────────────────────────
-//           JSON.stringify([
-//             'customer', 'vendorCode', 'poNumber', 'supplyDate',
-//             'sampleStatus', 'sampleSupplyMode', 'acceptedMailDate',
-//             'trsoDate', 'trsoModel', 'trsoRev',
-//             'iqaDate', 'iqaModel', 'iqaVcNumber',
-//             'ppapIntimateDate', 'ppapClosingDate', 'ppapStatus',
-//             'drawingNumber', 'drawingModel', 'vehicleType',
-//             'partNumber', 'partDescription'
-//           ]),
-
-//           // ── quality_verification_fields (26 fields) ─────────────────────────
-//           JSON.stringify([
-//             'tubeDiameter', 'series', 'tubeLength', 'partType', 'partWeightKg',
-//             'noiseDeadenerLength', 'availableNoiseDeadener',
-//             'fepPressHStockPositions', 'frontEndPieceDetails',
-//             'rearHousingLength', 'longForkLength', 'sfDetails', 'pdcLength',
-//             'couplingFlangeOrientations', 'hexBoltNutTighteningTorque',
-//             'loctiteGradeUse', 'cbKitDetails', 'slipDetails',
-//             'greaseableOrNonGreaseable',
-//             'mountingDetailsFlangeYoke', 'mountingDetailsCouplingFlange',
-//             'iaBellowDetails', 'totalLength',
-//             'balancingRpm', 'unbalanceInCmg', 'unbalanceInGram',
-//             'unbalanceInGram75Percent', 'revNo'
-//           ]),
-//         ]
-//       );
-//       console.log('✅ dynamic_fields seeded with default config');
-//     }
-//   } catch (error) {
-//     console.error('❌ Error creating dynamic_fields table:', error.message);
-//     throw error;
-//   }
-// }
-
-// async function createProductsTable() {
-//   try {
-//     await query(`
-//       CREATE TABLE IF NOT EXISTS products (
-//         id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-//         part_number     VARCHAR(100) NOT NULL UNIQUE,
-//         customer        VARCHAR(255) NOT NULL,
-
-//         status          ENUM('draft','active','inactive','pending','rejected') DEFAULT 'draft',
-//         approved        ENUM('pending','approved','rejected') DEFAULT 'pending',
-//         quality_verified ENUM('pending','approved','rejected') DEFAULT 'pending',
-
-//         edited          TINYINT(1) DEFAULT 0,
-//         edited_fields   JSON DEFAULT ('[]'),
-
-//         specification   JSON NOT NULL DEFAULT ('{}'),
-//         ppap_documents JSON DEFAULT ('{}'),
-//         created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
-//         updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-//         created_by      VARCHAR(100),
-//         modified_by     VARCHAR(100),
-
-//         INDEX idx_part_number   (part_number),
-//         INDEX idx_customer      (customer),
-//         INDEX idx_approved      (approved),
-//         INDEX idx_quality       (quality_verified),
-//         INDEX idx_status        (status),
-//         INDEX idx_created_at    (created_at)
-//       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-//     `);
-//     console.log('✅ products table created/verified');
-//   } catch (error) {
-//     console.error('❌ Error creating products table:', error.message);
-//     throw error;
-//   }
-// }
-
-// async function createScannedProductsTable() {
-//   try {
-//     if (!(await tableExists('products'))) {
-//       throw new Error('products table must exist before scanned_products');
-//     }
-
-//     await query(`
-//       CREATE TABLE IF NOT EXISTS scanned_products (
-//         id                INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-
-//         dispatch_date     DATE,
-//         shift             VARCHAR(10),
-
-//         part_no           VARCHAR(100),
-//         customer_name     VARCHAR(255),
-//         product_type      VARCHAR(100),
-
-//         validation_status ENUM('pass','fail','pending') DEFAULT 'pending',
-//         remarks           TEXT,
-
-//         part_sl_no        VARCHAR(100),
-//         sl_no             VARCHAR(100),
-//         scanned_text      TEXT,
-
-//         plant_location    VARCHAR(100),
-//         vendorCode     VARCHAR(100),
-
-//         is_rejected       TINYINT(1) DEFAULT 0,
-
-//         created_by        VARCHAR(100),
-//         modified_by       VARCHAR(100),
-
-//         product_id        INT UNSIGNED NULL,
-
-//         scanned_specification JSON DEFAULT ('{}'),
-//         matched_fields        JSON DEFAULT ('[]'),
-//         mismatched_fields     JSON DEFAULT ('[]'),
-
-//         created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
-//         updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-
-//         FOREIGN KEY (product_id)
-//           REFERENCES products(id)
-//           ON DELETE SET NULL
-//           ON UPDATE CASCADE,
-
-//         INDEX idx_part_no           (part_no),
-//         INDEX idx_dispatch_date     (dispatch_date),
-//         INDEX idx_validation_status (validation_status),
-//         INDEX idx_is_rejected       (is_rejected),
-//         INDEX idx_product_id        (product_id),
-//         INDEX idx_created_at        (created_at)
-//       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-//     `);
-//     console.log('✅ scanned_products table created/verified');
-//   } catch (error) {
-//     console.error('❌ Error creating scanned_products table:', error.message);
-//     throw error;
-//   }
-// }
-
-// // ─── main export ──────────────────────────────────────────────────────────────
-
-// export async function runBootstrap() {
-//   console.log('🚀 Starting database bootstrap...');
-//   try {
-//     await query('SELECT 1');
-//     console.log('✅ Database connection verified');
-
-//     await createDynamicFieldsTable();
-//     await createProductsTable();
-//     await createScannedProductsTable();
-
-//     console.log('🎉 Bootstrap completed successfully');
-//     return true;
-//   } catch (error) {
-//     console.error('❌ Bootstrap failed:', error);
-//     throw error;
-//   }
-// }
-
-
-
-import { query } from "./db.js";
-
-// ───────────────── helpers ─────────────────
+// ─── helpers ─────────────────────────────────────────────────────────────────
 
 async function tableExists(tableName) {
   try {
     const result = await query(`SHOW TABLES LIKE '${tableName}'`);
-    return result.length > 0;
-  } catch (err) {
-    console.log("table check error", err.message);
+    return Array.isArray(result) && result.length > 0;
+  } catch (error) {
+    console.log(`⚠️  Could not check table ${tableName}:`, error.message);
     return false;
   }
 }
 
-// ───────────────── dynamic_fields ─────────────────
+// ─── table creators ───────────────────────────────────────────────────────────
+
+async function createUsersTable() {
+  try {
+    await query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id                  INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        name                VARCHAR(255) NOT NULL,
+        mobile              VARCHAR(20),
+        username            VARCHAR(100) NOT NULL UNIQUE,
+        email               VARCHAR(255) NOT NULL UNIQUE,
+        password            VARCHAR(255) NOT NULL,
+        role                ENUM('super admin', 'admin', 'production', 'quality', 'viewer') DEFAULT 'viewer',
+        column_array        JSON DEFAULT ('[]'),
+        menu_array          JSON DEFAULT ('[]'),
+        document_name_array JSON DEFAULT ('[]'),
+        profile_image       VARCHAR(255) DEFAULT NULL,
+        is_active           TINYINT(1) DEFAULT 1,
+        created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        show_image          VARCHAR(10) DEFAULT 'true',
+        INDEX idx_username  (username),
+        INDEX idx_email     (email),
+        INDEX idx_role      (role)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+    console.log('✅ users table created/verified');
+
+    // Seed the default super admin if no users exist yet
+    const existing = await query('SELECT id FROM users LIMIT 1');
+    if (!existing.length) {
+      await query(
+        `INSERT INTO users
+          (name, mobile, username, email, password, role, column_array, menu_array, document_name_array, profile_image, is_active, show_image)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          'Krushna',
+          '9876543210',
+          'krushna_07',
+          'krushna.corenova@gmail.com',
+          '12345678',                       // ⚠️ hash this before production (e.g. bcrypt)
+          'super admin',
+
+          // column_array
+          JSON.stringify(['partNumber', 'customer', 'series', 'status']),
+
+          // menu_array
+          JSON.stringify(['Dashboard', 'Products', 'Scanned Products', 'User Management']),
+
+          // document_name_array
+          JSON.stringify(['PPAP', 'Drawings', 'Test Reports']),
+
+          'uploads/user_profile/profile-1775042275569-KC_logo.jpg',
+          1,       // is_active
+          'true',  // show_image
+        ]
+      );
+      console.log('✅ users table seeded with default super admin');
+    }
+  } catch (error) {
+    console.error('❌ Error creating users table:', error.message);
+    throw error;
+  }
+}
 
 async function createDynamicFieldsTable() {
   try {
     await query(`
       CREATE TABLE IF NOT EXISTS dynamic_fields (
-
-        id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-
-        product_fields LONGTEXT NOT NULL,
-        approval_fields LONGTEXT NOT NULL,
-        quality_verification_fields LONGTEXT NOT NULL,
-
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        ON UPDATE CURRENT_TIMESTAMP
-
-      ) ENGINE=InnoDB
-      DEFAULT CHARSET=utf8mb4
-      COLLATE=utf8mb4_unicode_ci;
+        id                          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        product_fields              JSON NOT NULL DEFAULT ('[]'),
+        approval_fields             JSON NOT NULL DEFAULT ('[]'),
+        quality_verification_fields JSON NOT NULL DEFAULT ('[]'),
+        important_fields            JSON NOT NULL DEFAULT ('[]'),
+        documents                   JSON NOT NULL DEFAULT ('[]'),
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
+    console.log('✅ dynamic_fields table created/verified');
 
-    console.log("✅ dynamic_fields table created");
-
-    const existing = await query(
-      "SELECT id FROM dynamic_fields LIMIT 1"
-    );
-
+    const existing = await query('SELECT id FROM dynamic_fields LIMIT 1');
     if (!existing.length) {
-
       await query(
         `INSERT INTO dynamic_fields
-        (product_fields, approval_fields, quality_verification_fields)
-        VALUES (?, ?, ?)`,
+          (product_fields, approval_fields, quality_verification_fields, important_fields, documents)
+         VALUES (?, ?, ?, ?, ?)`,
         [
-
-          // ✅ product_fields (your original)
+          // ── product_fields (unchanged) ──────────────────────────────────────
           JSON.stringify([
-            { name: 'partNumber', type: 'text' },
-            { name: 'customer', type: 'text' },
-            { name: 'vendorCode', type: 'text' },
-            { name: 'partType', type: 'text' },
-            { name: 'partDescription', type: 'text' },
-            { name: 'series', type: 'text' },
-            { name: 'vehicleType', type: 'text' },
-            { name: 'status', type: 'text' },
-            { name: 'poNumber', type: 'text' },
-            { name: 'supplyDate', type: 'date' },
-            { name: 'sampleStatus', type: 'text' },
-            { name: 'sampleSupplyMode', type: 'text' },
-            { name: 'acceptedMailDate', type: 'date' },
-            { name: 'revNo', type: 'text' },
-
-            { name: 'tubeLength', type: 'number' },
-            { name: 'tubeDiameter', type: 'text' },
-            { name: 'partWeightKg', type: 'number' },
-            { name: 'totalLength', type: 'number' },
-            { name: 'noiseDeadenerLength', type: 'number' },
-            { name: 'availableNoiseDeadener', type: 'text' },
-            { name: 'rearHousingLength', type: 'number' },
-            { name: 'longForkLength', type: 'number' },
-            { name: 'pdcLength', type: 'number' },
-
-            { name: 'drawingNumber', type: 'text' },
-            { name: 'drawingModel', type: 'text' },
-
-            { name: 'fepPressHStockPositions', type: 'text' },
-            { name: 'frontEndPieceDetails', type: 'text' },
-            { name: 'sfDetails', type: 'text' },
-            { name: 'couplingFlangeOrientations', type: 'text' },
-            { name: 'hexBoltNutTighteningTorque', type: 'text' },
-            { name: 'loctiteGradeUse', type: 'text' },
-            { name: 'cbKitDetails', type: 'text' },
-            { name: 'slipDetails', type: 'text' },
-            { name: 'greaseableOrNonGreaseable', type: 'text' },
-            { name: 'mountingDetailsFlangeYoke', type: 'text' },
+            { name: 'partNumber',              type: 'text'   },
+            { name: 'customer',                type: 'text'   },
+            { name: 'vendorCode',              type: 'text'   },
+            { name: 'partType',                type: 'text'   },
+            { name: 'partDescription',         type: 'text'   },
+            { name: 'series',                  type: 'text'   },
+            { name: 'vehicleType',             type: 'text'   },
+            { name: 'status',                  type: 'text'   },
+            { name: 'poNumber',                type: 'text'   },
+            { name: 'supplyDate',              type: 'date'   },
+            { name: 'sampleStatus',            type: 'text'   },
+            { name: 'sampleSupplyMode',        type: 'text'   },
+            { name: 'acceptedMailDate',        type: 'date'   },
+            { name: 'revNo',                   type: 'text'   },
+            { name: 'tubeLength',              type: 'number' },
+            { name: 'tubeDiameter',            type: 'text'   },
+            { name: 'partWeightKg',            type: 'number' },
+            { name: 'totalLength',             type: 'number' },
+            { name: 'noiseDeadenerLength',     type: 'number' },
+            { name: 'availableNoiseDeadener',  type: 'text'   },
+            { name: 'rearHousingLength',       type: 'number' },
+            { name: 'longForkLength',          type: 'number' },
+            { name: 'pdcLength',               type: 'number' },
+            { name: 'drawingNumber',           type: 'text'   },
+            { name: 'drawingModel',            type: 'text'   },
+            { name: 'fepPressHStockPositions',       type: 'text' },
+            { name: 'frontEndPieceDetails',          type: 'text' },
+            { name: 'sfDetails',                     type: 'text' },
+            { name: 'couplingFlangeOrientations',    type: 'text' },
+            { name: 'hexBoltNutTighteningTorque',    type: 'text' },
+            { name: 'loctiteGradeUse',               type: 'text' },
+            { name: 'cbKitDetails',                  type: 'text' },
+            { name: 'slipDetails',                   type: 'text' },
+            { name: 'greaseableOrNonGreaseable',     type: 'text' },
+            { name: 'mountingDetailsFlangeYoke',     type: 'text' },
             { name: 'mountingDetailsCouplingFlange', type: 'text' },
-            { name: 'iaBellowDetails', type: 'text' },
-
-            { name: 'balancingRpm', type: 'number' },
-            { name: 'unbalanceInCmg', type: 'number' },
-            { name: 'unbalanceInGram', type: 'number' },
-            { name: 'unbalanceInGram75Percent', type: 'number' },
-
-            { name: 'trsoDate', type: 'date' },
+            { name: 'iaBellowDetails',               type: 'text' },
+            { name: 'balancingRpm',            type: 'number' },
+            { name: 'unbalanceInCmg',          type: 'number' },
+            { name: 'unbalanceInGram',         type: 'number' },
+            { name: 'unbalanceInGram75Percent',type: 'number' },
+            { name: 'trsoDate',  type: 'date' },
             { name: 'trsoModel', type: 'text' },
-            { name: 'trsoRev', type: 'text' },
-
-            { name: 'iqaDate', type: 'date' },
-            { name: 'iqaModel', type: 'text' },
+            { name: 'trsoRev',   type: 'text' },
+            { name: 'iqaDate',     type: 'date' },
+            { name: 'iqaModel',    type: 'text' },
             { name: 'iqaVcNumber', type: 'text' },
-
             { name: 'ppapIntimateDate', type: 'date' },
-            { name: 'ppapClosingDate', type: 'date' },
-            { name: 'ppapStatus', type: 'text' }
-
+            { name: 'ppapClosingDate',  type: 'date' },
+            { name: 'ppapStatus',       type: 'text' },
+            { name: 'remarks',          type: 'text' },
           ]),
 
-          // ✅ approval_fields
+          // ── approval_fields (unchanged) ─────────────────────────────────────
           JSON.stringify([
-            'customer',
-            'vendorCode',
-            'poNumber',
-            'supplyDate',
-            'sampleStatus',
-            'sampleSupplyMode',
-            'acceptedMailDate',
-            'trsoDate',
-            'trsoModel',
-            'trsoRev',
-            'iqaDate',
-            'iqaModel',
-            'iqaVcNumber',
-            'ppapIntimateDate',
-            'ppapClosingDate',
-            'ppapStatus',
-            'drawingNumber',
-            'drawingModel',
-            'vehicleType',
-            'partNumber',
-            'partDescription'
+            'customer', 'vendorCode', 'poNumber', 'supplyDate',
+            'sampleStatus', 'sampleSupplyMode', 'acceptedMailDate',
+            'trsoDate', 'trsoModel', 'trsoRev',
+            'iqaDate', 'iqaModel', 'iqaVcNumber',
+            'ppapIntimateDate', 'ppapClosingDate', 'ppapStatus',
+            'drawingNumber', 'drawingModel', 'vehicleType',
+            'partNumber', 'partDescription',
           ]),
 
-          // ✅ quality_verification_fields
+          // ── quality_verification_fields (unchanged) ─────────────────────────
           JSON.stringify([
-            'tubeDiameter',
-            'series',
-            'tubeLength',
-            'partType',
-            'partWeightKg',
-            'noiseDeadenerLength',
-            'availableNoiseDeadener',
-            'fepPressHStockPositions',
-            'frontEndPieceDetails',
-            'rearHousingLength',
-            'longForkLength',
-            'sfDetails',
-            'pdcLength',
-            'couplingFlangeOrientations',
-            'hexBoltNutTighteningTorque',
-            'loctiteGradeUse',
-            'cbKitDetails',
-            'slipDetails',
+            'tubeDiameter', 'series', 'tubeLength', 'partType', 'partWeightKg',
+            'noiseDeadenerLength', 'availableNoiseDeadener',
+            'fepPressHStockPositions', 'frontEndPieceDetails',
+            'rearHousingLength', 'longForkLength', 'sfDetails', 'pdcLength',
+            'couplingFlangeOrientations', 'hexBoltNutTighteningTorque',
+            'loctiteGradeUse', 'cbKitDetails', 'slipDetails',
             'greaseableOrNonGreaseable',
-            'mountingDetailsFlangeYoke',
-            'mountingDetailsCouplingFlange',
-            'iaBellowDetails',
-            'totalLength',
-            'balancingRpm',
-            'unbalanceInCmg',
-            'unbalanceInGram',
-            'unbalanceInGram75Percent',
-            'revNo'
-          ])
+            'mountingDetailsFlangeYoke', 'mountingDetailsCouplingFlange',
+            'iaBellowDetails', 'totalLength',
+            'balancingRpm', 'unbalanceInCmg', 'unbalanceInGram',
+            'unbalanceInGram75Percent', 'revNo',
+          ]),
+
+          // ── important_fields (seed: empty — add what you need via API) ──────
+          JSON.stringify([]),
+
+          // ── documents ───────────────────────────────────────────────────────
+          JSON.stringify([
+            // individual category
+            { name: 'PSW',               category: 'individual' },
+            { name: 'TRSO',              category: 'individual' },
+            { name: 'IQA',               category: 'individual' },
+            { name: 'PO COPY',           category: 'individual' },
+            { name: 'DRAWING',           category: 'individual' },
+            { name: 'INSPECTION REPORT', category: 'individual' },
+            { name: 'STICKER',           category: 'individual' },
+            // ppap category
+            { name: 'DRAWING',           category: 'ppap' },
+            { name: 'SAMPLE REPORT',     category: 'ppap' },
+            { name: 'MR REPORT',         category: 'ppap' },
+            { name: 'SPC',               category: 'ppap' },
+            { name: 'MSA',               category: 'ppap' },
+            { name: 'PIST',              category: 'ppap' },
+            { name: 'PFMEA',             category: 'ppap' },
+            { name: 'PFD',               category: 'ppap' },
+            { name: 'CONTROL PLAN',      category: 'ppap' },
+            { name: 'IQA',               category: 'ppap' },
+            { name: 'WELDING REPORT',    category: 'ppap' },
+          ]),
         ]
       );
-
-      console.log("✅ dynamic_fields seeded with full config");
+      console.log('✅ dynamic_fields seeded with default config');
     }
-
   } catch (error) {
-    console.error(
-      "❌ Error creating dynamic_fields table:",
-      error.message
-    );
+    console.error('❌ Error creating dynamic_fields table:', error.message);
     throw error;
   }
 }
-// ───────────────── products ─────────────────
 
 async function createProductsTable() {
   try {
     await query(`
       CREATE TABLE IF NOT EXISTS products (
+        id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        part_number     VARCHAR(100) NOT NULL UNIQUE,
+        customer        VARCHAR(255) NOT NULL,
 
-        id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        status          ENUM('draft','active','inactive','pending','rejected') DEFAULT 'draft',
+        approved        ENUM('pending','approved','rejected') DEFAULT 'pending',
+        quality_verified ENUM('pending','approved','rejected') DEFAULT 'pending',
+        remarks         JSON DEFAULT ('[]'),
+        edited          TINYINT(1) DEFAULT 0,
+        edited_fields   JSON DEFAULT ('[]'),
 
-        part_number VARCHAR(100) NOT NULL UNIQUE,
-        customer VARCHAR(255) NOT NULL,
+        specification   JSON NOT NULL DEFAULT ('{}'),
+        ppap_documents JSON DEFAULT ('{}'),
+        product_images  JSON DEFAULT ('{}'),
+        created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        created_by      VARCHAR(100),
+        modified_by     VARCHAR(100),
 
-        status ENUM(
-          'draft','active','inactive','pending','rejected'
-        ) DEFAULT 'draft',
-
-        approved ENUM(
-          'pending','approved','rejected'
-        ) DEFAULT 'pending',
-
-        quality_verified ENUM(
-          'pending','approved','rejected'
-        ) DEFAULT 'pending',
-
-        edited TINYINT(1) DEFAULT 0,
-
-        edited_fields LONGTEXT,
-        specification LONGTEXT NOT NULL,
-        ppap_documents LONGTEXT,
-
-        created_at TIMESTAMP NULL,
-
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        ON UPDATE CURRENT_TIMESTAMP,
-
-        created_by VARCHAR(100),
-        modified_by VARCHAR(100),
-
-        INDEX idx_part_number (part_number),
-        INDEX idx_customer (customer),
-        INDEX idx_status (status),
-        INDEX idx_approved (approved),
-        INDEX idx_quality (quality_verified)
-
-      ) ENGINE=InnoDB
-      DEFAULT CHARSET=utf8mb4
-      COLLATE=utf8mb4_unicode_ci;
+        INDEX idx_part_number   (part_number),
+        INDEX idx_customer      (customer),
+        INDEX idx_approved      (approved),
+        INDEX idx_quality       (quality_verified),
+        INDEX idx_status        (status),
+        INDEX idx_created_at    (created_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
-
-    console.log("✅ products created");
-
-  } catch (err) {
-    console.log("products error", err.message);
-    throw err;
+    console.log('✅ products table created/verified');
+  } catch (error) {
+    console.error('❌ Error creating products table:', error.message);
+    throw error;
   }
 }
 
-// ───────────────── scanned_products ─────────────────
-
 async function createScannedProductsTable() {
   try {
-
-    if (!(await tableExists("products"))) {
-      throw new Error(
-        "products must exist before scanned_products"
-      );
+    if (!(await tableExists('products'))) {
+      throw new Error('products table must exist before scanned_products');
     }
 
     await query(`
       CREATE TABLE IF NOT EXISTS scanned_products (
+        id                INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
 
-        id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        dispatch_date     DATE,
+        shift             VARCHAR(10),
 
-        dispatch_date DATE,
-        shift VARCHAR(10),
+        part_no           VARCHAR(100),
+        customer_name     VARCHAR(255),
+        product_type      VARCHAR(100),
 
-        part_no VARCHAR(100),
-        customer_name VARCHAR(255),
-        product_type VARCHAR(100),
+        validation_status ENUM('pass','fail','pending') DEFAULT 'pending',
+        remarks           TEXT,
 
-        validation_status ENUM(
-          'pass','fail','pending'
-        ) DEFAULT 'pending',
+        part_sl_no        VARCHAR(100),
+        sl_no             VARCHAR(100),
+        scanned_text      TEXT,
 
-        remarks TEXT,
+        plant_location    VARCHAR(100),
+        vendorCode     VARCHAR(100),
 
-        part_sl_no VARCHAR(100),
-        sl_no VARCHAR(100),
-        scanned_text TEXT,
+        is_rejected       TINYINT(1) DEFAULT 0,
 
-        plant_location VARCHAR(100),
-        vendorCode VARCHAR(100),
+        created_by        VARCHAR(100),
+        modified_by       VARCHAR(100),
 
-        is_rejected TINYINT(1) DEFAULT 0,
+        product_id        INT UNSIGNED NULL,
 
-        created_by VARCHAR(100),
-        modified_by VARCHAR(100),
+        scanned_specification JSON DEFAULT ('{}'),
+        matched_fields        JSON DEFAULT ('[]'),
+        mismatched_fields     JSON DEFAULT ('[]'),
 
-        product_id INT UNSIGNED,
-
-        scanned_specification LONGTEXT,
-        matched_fields LONGTEXT,
-        mismatched_fields LONGTEXT,
-
-        created_at TIMESTAMP NULL,
-
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        ON UPDATE CURRENT_TIMESTAMP,
+        created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
         FOREIGN KEY (product_id)
-        REFERENCES products(id)
-        ON DELETE SET NULL
-        ON UPDATE CASCADE
+          REFERENCES products(id)
+          ON DELETE SET NULL
+          ON UPDATE CASCADE,
 
-      ) ENGINE=InnoDB
-      DEFAULT CHARSET=utf8mb4
-      COLLATE=utf8mb4_unicode_ci;
+        INDEX idx_part_no           (part_no),
+        INDEX idx_dispatch_date     (dispatch_date),
+        INDEX idx_validation_status (validation_status),
+        INDEX idx_is_rejected       (is_rejected),
+        INDEX idx_product_id        (product_id),
+        INDEX idx_created_at        (created_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
-
-    console.log("✅ scanned_products created");
-
-  } catch (err) {
-    console.log("scanned_products error", err.message);
-    throw err;
+    console.log('✅ scanned_products table created/verified');
+  } catch (error) {
+    console.error('❌ Error creating scanned_products table:', error.message);
+    throw error;
   }
 }
 
-// ───────────────── bootstrap ─────────────────
+// ─── main export ──────────────────────────────────────────────────────────────
 
 export async function runBootstrap() {
-
-  console.log("🚀 bootstrap start");
-
+  console.log('🚀 Starting database bootstrap...');
   try {
-
-    await query("SELECT 1");
-
-    console.log("✅ DB connected");
+    await query('SELECT 1');
+    console.log('✅ Database connection verified');
 
     await createDynamicFieldsTable();
     await createProductsTable();
     await createScannedProductsTable();
+    await createUsersTable();
 
-    console.log("🎉 bootstrap done");
-
-  } catch (err) {
-
-    console.log("❌ bootstrap failed", err);
-
-    throw err;
+    console.log('🎉 Bootstrap completed successfully');
+    return true;
+  } catch (error) {
+    console.error('❌ Bootstrap failed:', error);
+    throw error;
   }
 }
