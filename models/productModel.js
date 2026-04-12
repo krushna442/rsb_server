@@ -581,7 +581,9 @@ export const deleteDocumentModel = async (
   modified_by
 ) => {
   if (!VALID_CATEGORIES.includes(category)) {
-    throw new Error(`Invalid category: ${category}. Must be one of: ${VALID_CATEGORIES.join(", ")}`);
+    throw new Error(
+      `Invalid category: ${category}. Must be one of: ${VALID_CATEGORIES.join(", ")}`
+    );
   }
 
   const product = await findProductById(id);
@@ -590,14 +592,35 @@ export const deleteDocumentModel = async (
   const docs = parseCategorizedDocs(product.ppap_documents);
 
   if (!docs[category] || !docs[category][name]) {
-    throw new Error(`Document "${name}" not found in category "${category}"`);
+    throw new Error(
+      `Document "${name}" not found in category "${category}"`
+    );
   }
 
-  const diskPath = docs[category][name];
+  const value = docs[category][name];
 
-  // delete file from disk
+  // ✅ CASE 1: If marked as "not_required"
+  if (value === "not_required") {
+    delete docs[category][name];
+
+    await execute(
+      `UPDATE products
+       SET ppap_documents = ?,
+           modified_by    = ?,
+           updated_at     = NOW()
+       WHERE id = ?`,
+      [JSON.stringify(docs), modified_by, id]
+    );
+
+    return {
+      message: "Document upload enabled",
+      product: await findProductById(id),
+    };
+  }
+
+  // ✅ CASE 2: Normal file delete
   try {
-    fs.unlinkSync(diskPath);
+    fs.unlinkSync(value);
   } catch (err) {
     console.log("File delete error:", err.message);
   }
@@ -613,7 +636,10 @@ export const deleteDocumentModel = async (
     [JSON.stringify(docs), modified_by, id]
   );
 
-  return findProductById(id);
+  return {
+    message: "Document deleted successfully",
+    product: await findProductById(id),
+  };
 };
 
 

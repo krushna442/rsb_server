@@ -7,7 +7,8 @@ import {
   updateUserImage,
   findAllUsers,
   updateUser,
-  deleteUserById
+  deleteUserById,
+  addMailTypes, removeMailTypes, MAIL_TYPES 
 } from '../models/userModel.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'secret123';
@@ -254,4 +255,73 @@ export const deleteUser = async (req, res) => {
     console.error("DeleteUser Error:", error);
     res.status(500).json({ success: false, message: 'Server error deleting user' });
   }
+};
+
+
+
+
+/**
+ * PATCH /api/users/:id/mail-types/add
+ * Body: { mailTypes: ['shift_scan_report', 'monthly_product_report'] }
+ */
+export const addUserMailTypes = async (req, res) => {
+  try {
+    const { mailTypes } = req.body;
+
+    if (!Array.isArray(mailTypes) || mailTypes.length === 0) {
+      return res.status(400).json({ success: false, message: 'mailTypes must be a non-empty array' });
+    }
+
+    const updated = await addMailTypes(req.params.id, mailTypes);
+
+    if (!updated) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Mail types added successfully',
+      data: updated,
+    });
+  } catch (error) {
+    const isValidation = error.message.startsWith('Invalid mail type');
+    res.status(isValidation ? 400 : 500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * PATCH /api/users/:id/mail-types/remove
+ * Body: { mailTypes: ['shift_scan_report'] }   — specific removal
+ * Body: { mailTypes: [] }                       — clears all
+ */
+export const removeUserMailTypes = async (req, res) => {
+  try {
+    const { mailTypes } = req.body;
+
+    if (!Array.isArray(mailTypes)) {
+      return res.status(400).json({ success: false, message: 'mailTypes must be an array' });
+    }
+
+    const updated = await removeMailTypes(req.params.id, mailTypes);
+
+    if (!updated) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const message = mailTypes.length === 0
+      ? 'All mail types cleared'
+      : 'Mail types removed successfully';
+
+    res.status(200).json({ success: true, message, data: updated });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * GET /api/users/mail-types
+ * Returns the list of valid mail type keys — useful for populating the admin UI.
+ */
+export const getMailTypesList = async (_req, res) => {
+  res.json({ success: true, mailTypes: MAIL_TYPES });
 };

@@ -141,6 +141,19 @@ const allowedFields = [
             values.push(updateData.is_active ? 1 : 0);
         }
 
+        if (updateData.mail_types !== undefined) {
+  const valid = ['shift_scan_report', 'day_scan_report', 'monthly_scan_report', 'monthly_product_report'];
+  if (!Array.isArray(updateData.mail_types)) {
+    throw new Error('mail_types must be an array');
+  }
+  const invalid = updateData.mail_types.filter(t => !valid.includes(t));
+  if (invalid.length) {
+    throw new Error(`Invalid mail type(s): ${invalid.join(', ')}`);
+  }
+  fields.push('mail_types = ?');
+  values.push(JSON.stringify(updateData.mail_types));
+}
+
         if (fields.length === 0) return await findUserById(id);
 
         values.push(id);
@@ -185,5 +198,80 @@ export const findEmailsByRoles = async (roles) => {
   } catch (error) {
     console.error("Error in findEmailsByRoles:", error);
     throw error;
+  }
+};
+
+
+
+export const MAIL_TYPES = [
+  'shift_scan_report',    // shift-wise all scan report + statistics
+  'day_scan_report',    // day-wise report per part number
+  'monthly_scan_report',  // monthly scan report
+  'monthly_product_report', // monthly products report
+];
+
+/**
+ * Adds one or more mail types to a user.
+ * Silently skips types the user already has (idempotent).
+ *
+ * @returns {Object} updated user row
+ */
+export const addMailTypes = async (userId, mailTypes) => {
+  try {
+    if (!Array.isArray(mailTypes) || mailTypes.length === 0) {
+      throw new Error('mailTypes must be a non-empty array');
+    }
+    const invalid = mailTypes.filter(t => !MAIL_TYPES.includes(t));
+    if (invalid.length) throw new Error(`Invalid mail type(s): ${invalid.join(', ')}`);
+
+    const user = await findUserById(userId);
+    if (!user) return null;
+
+    const current = Array.isArray(user.mail_types) ? user.mail_types : [];
+    const merged  = [...new Set([...current, ...mailTypes])]; // deduplicates
+
+    await execute(
+      'UPDATE users SET mail_types = ? WHERE id = ?',
+      [JSON.stringify(merged), userId]
+    );
+
+    return await findUserById(userId);
+  } catch (err) {
+    console.error('Error in addMailTypes:', err);
+    throw err;
+  }
+};
+
+/**
+ * Removes one or more mail types from a user.
+ * Passing an empty array clears all mail types.
+ *
+ * @returns {Object} updated user row
+ */
+export const removeMailTypes = async (userId, mailTypes) => {
+  try {
+    if (!Array.isArray(mailTypes)) {
+      throw new Error('mailTypes must be an array');
+    }
+
+    const user = await findUserById(userId);
+    if (!user) return null;
+
+    const current = Array.isArray(user.mail_types) ? user.mail_types : [];
+
+    // Empty array = clear all
+    const updated = mailTypes.length === 0
+      ? []
+      : current.filter(t => !mailTypes.includes(t));
+
+    await execute(
+      'UPDATE users SET mail_types = ? WHERE id = ?',
+      [JSON.stringify(updated), userId]
+    );
+
+    return await findUserById(userId);
+  } catch (err) {
+    console.error('Error in removeMailTypes:', err);
+    throw err;
   }
 };

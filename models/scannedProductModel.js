@@ -242,16 +242,16 @@ export const findScanById = async (id) => {
 // Field map – extend / adjust to your actual DB column names
 // ---------------------------------------------------------------------------
 const SCAN_FIELD_MAP = [
-  { label: 'Tube Diameter',      masterKey: 'tubeDiameter',    scanKey: 'tubeDiameter',    isRoot: false, skipIfNotFront: false },
-  { label: 'Tube Length',        masterKey: 'tubeLength',      scanKey: 'tubeLength',      isRoot: false, skipIfNotFront: false },
-  { label: 'Series',             masterKey: 'series',          scanKey: 'series',          isRoot: false, skipIfNotFront: false },
-  { label: 'C-Flange Orient',    masterKey: 'cFlangeOrient',   scanKey: 'cFlangeOrient',   isRoot: false, skipIfNotFront: true  },
-  { label: 'Flange Yoke',        masterKey: 'flangeYoke',      scanKey: 'flangeYoke',      isRoot: false, skipIfNotFront: true  },
-  { label: 'Coupling Flange',    masterKey: 'couplingFlange',  scanKey: 'couplingFlange',  isRoot: false, skipIfNotFront: true  },
-  { label: 'Customer',           masterKey: 'customer',        scanKey: 'customer_name',   isRoot: true,  skipIfNotFront: false },
+  { label: 'Tube Diameter',   masterKey: 'tubeDiameter',                    scanKey: 'tubeDiameter',   isRoot: false, skipIfNotFront: false },
+  { label: 'Tube Length',     masterKey: 'tubeLength',                      scanKey: 'tubeLength',     isRoot: false, skipIfNotFront: false },
+  { label: 'Series',          masterKey: 'series',                          scanKey: 'series',         isRoot: false, skipIfNotFront: false },
+  { label: 'C-Flange Orient', masterKey: 'couplingFlangeOrientations',         scanKey: 'cFlangeOrient',  isRoot: false, skipIfNotFront: true  }, // ← was 'cFlangeOrient'
+  { label: 'Flange Yoke',     masterKey: 'mountingDetailsFlangeYoke',       scanKey: 'flangeYoke',     isRoot: false, skipIfNotFront: true  }, // ← was 'flangeYoke'
+  { label: 'Coupling Flange', masterKey: 'mountingDetailsCouplingFlange',   scanKey: 'couplingFlange', isRoot: false, skipIfNotFront: true  }, // ← was 'couplingFlange'
+  { label: 'Customer',        masterKey: 'customer',                        scanKey: 'customer_name',  isRoot: true,  skipIfNotFront: false },
 ];
 
-const FRONT_MIDDLE_TYPES = ['FRONT', 'MIDDLE'];
+const FRONT_MIDDLE_TYPES = ['FRONT', 'MIDDLE','INTEGRATED'];
 
 // ---------------------------------------------------------------------------
 // Vendor code comparison helper
@@ -268,6 +268,32 @@ function vendorMatches(masterVendorRaw = '', scannedVendor = '') {
   return masterCodes.includes(scanned);
 }
 
+
+// ---------------------------------------------------------------------------
+// Resolve the vendor code for the specific scanned customer
+// Master stores parallel comma-separated lists:
+//   customer:   "ALL ALW,ALL PNR"
+//   vendorCode: "7205761,7201012"
+// The scanned customer's position in the master customer list
+// determines which vendor code to use.
+// ---------------------------------------------------------------------------
+function resolveVendorCodeForCustomer(masterCustomerRaw = '', masterVendorRaw = '', scannedCustomer = '') {
+  if (!masterCustomerRaw || !masterVendorRaw || !scannedCustomer) return masterVendorRaw;
+
+  const customers    = masterCustomerRaw.split(',').map(c => c.trim().toUpperCase());
+  const vendorCodes  = masterVendorRaw.split(',').map(v => v.trim());
+  const scanned      = scannedCustomer.trim().toUpperCase();
+
+  const index = customers.indexOf(scanned);
+
+  // If found and a vendor code exists at that position, return it
+  // Otherwise fall back to the full raw string (safe default)
+  if (index !== -1 && vendorCodes[index]) {
+    return vendorCodes[index];
+  }
+
+  return masterVendorRaw;
+}
 // ---------------------------------------------------------------------------
 // Rev-no comparison helper
 // Normalises both sides (strips "Rev No#" prefix, trims spaces)
@@ -294,7 +320,8 @@ function revMatches(masterRev = '', scannedRev = '') {
  * @returns {{ matched: string[], mismatched: string[], status: 'pass'|'fail', remarks: string }}
  */
 export const runValidation = (masterSpec, masterProduct, scanData) => {
-  const matched    = [];
+
+ const matched    = [];
   const mismatched = [];
 
   const partType      = (masterSpec?.partType ?? '').toString().trim().toUpperCase();
@@ -321,11 +348,21 @@ export const runValidation = (masterSpec, masterProduct, scanData) => {
     const masterStr  = String(masterVal).trim().toUpperCase();
     const scannedStr = String(scannedVal).trim().toUpperCase();
 
-    if (masterStr === scannedStr) {
-      matched.push(field.label);
+// For Customer field, support comma-separated master values
+if (field.masterKey === 'customer') {
+    const masterValues = masterStr.split(',').map(v => v.trim());
+    if (masterValues.includes(scannedStr)) {
+        matched.push(field.label);
     } else {
-      mismatched.push(field.label);
+        mismatched.push(field.label);
     }
+} else {
+    if (masterStr === scannedStr) {
+        matched.push(field.label);
+    } else {
+        mismatched.push(field.label);
+    }
+}
   }
 
   // ------------------------------------------------------------------
@@ -336,14 +373,21 @@ export const runValidation = (masterSpec, masterProduct, scanData) => {
 
   if (parsed) {
     // --- Vendor Code ---
-    const masterVendor = (masterProduct.vendorCode ?? '').trim();
-    if (masterVendor && parsed.vendorCode) {
-      if (vendorMatches(masterVendor, parsed.vendorCode)) {
-        matched.push('Vendor Code');
-      } else {
-        mismatched.push('Vendor Code');
-      }
-    }
+      const { reverseMap } = buildCustomerVendorMap(
+    masterProduct.customer ?? '',
+    masterProduct.specification?.vendorCode ?? ''
+  );
+
+  const expectedCustomer = reverseMap[parsed.vendorCode];
+  const actualCustomer = scanData.customer_name?.trim().toUpperCase();
+
+if (!expectedCustomer) {
+  mismatched.push('Customer');
+} else if (expectedCustomer !== actualCustomer) {
+  mismatched.push('Customer');
+} else {
+  matched.push('Customer');
+}
 
     // --- Rev No ---
     const masterRev = (masterProduct.revNo ?? masterSpec?.revNo ?? '').trim();
@@ -409,6 +453,57 @@ const generateSlNo = async (currentISTDatetime) => {
   return String(nextNumber).padStart(5, '0');
 };
 
+
+function buildCustomerVendorMap(customersStr, vendorsStr) {
+  const customers = customersStr
+    .split(',')
+    .map(c => c.trim().toUpperCase())
+    .filter(Boolean);
+
+  const vendors = vendorsStr
+    .split(',')
+    .map(v => v.trim())
+    .filter(Boolean);
+
+  const map = {};
+  const reverseMap = {};
+
+  const len = Math.min(customers.length, vendors.length);
+
+  for (let i = 0; i < len; i++) {
+    const customer = customers[i];
+    const vendor = vendors[i];
+
+    map[customer] = vendor;
+    reverseMap[vendor] = customer;
+  }
+
+  return { map, reverseMap };
+}
+
+function validateCustomerVendorMatch(masterProduct, scannedVendor, payloadCustomer) {
+  const { map, reverseMap } = buildCustomerVendorMap(
+    masterProduct.customer ?? '',
+    masterProduct.specification?.vendorCode ?? ''
+  );
+
+  const expectedCustomer = reverseMap[scannedVendor];
+
+  if (!expectedCustomer) {
+    throw new Error(`Unknown vendor code: ${scannedVendor}`);
+  }
+
+  if (
+    expectedCustomer !== payloadCustomer?.trim().toUpperCase()
+  ) {
+    throw new Error(
+      `Mismatch: vendor ${scannedVendor} belongs to ${expectedCustomer}, but got ${payloadCustomer}`
+    );
+  }
+
+  return true;
+}
+
 export const createScan = async (scanData, masterProduct, created_by = null) => {
   try {
     const masterSpec  = masterProduct?.specification ?? {};
@@ -420,14 +515,24 @@ export const createScan = async (scanData, masterProduct, created_by = null) => 
       scanData
     );
 
-    // Use auto-generated remarks unless operator explicitly provided one
-    const finalRemarks = scanData.remarks?.trim() || remarks;
+    // 1. Sanitize/Trim fields
+    const finalPartNo   = String(scanData.part_no   ?? '').trim();
+    const finalPartSlNo = String(scanData.part_sl_no ?? '').trim();
 
-    // dispatch_date is already set to IST by the controller ("YYYY-MM-DD HH:mm:ss")
-    const dispatchDate = scanData.dispatch_date;
 
-    // Auto-generate monthly-resetting sl_no
-    const slNo = await generateSlNo(dispatchDate);
+
+    // 3. Resolve vendor code for the specific scanned customer
+    //    e.g. master customer "ALL ALW,ALL PNR" + vendorCode "7205761,7201012"
+    //    + scanned customer "ALL PNR" → stores "7201012" only
+    const resolvedVendorCode = resolveVendorCodeForCustomer(
+      masterProduct.customer           ?? '',   // "ALL ALW,ALL PNR"
+      masterSpec.vendorCode            ?? '',   // "7205761,7201012"
+      scanData.customer_name           ?? ''    // "ALL PNR"
+    );
+
+    const finalRemarks  = scanData.remarks?.trim() || remarks;
+    const dispatchDate  = scanData.dispatch_date;
+    const slNo          = await generateSlNo(dispatchDate);
 
     const result = await execute(
       `INSERT INTO scanned_products (
@@ -444,16 +549,16 @@ export const createScan = async (scanData, masterProduct, created_by = null) => 
       [
         dispatchDate,
         scanData.shift          ?? null,
-        scanData.part_no        ?? null,
+        finalPartNo,
         scanData.customer_name  ?? null,
         scanData.product_type   ?? null,
         status,
         finalRemarks,
-        scanData.part_sl_no     ?? null,  // <- from frontend, unchanged
-        slNo,                             // <- auto-generated monthly serial
+        finalPartSlNo,
+        slNo,
         scanData.scanned_text   ?? null,
         scanData.plant_location ?? null,
-        scanData.vendorCode     ?? null,
+        resolvedVendorCode,                  // ← was: scanData.vendorCode ?? null
         status === 'fail' ? 1 : 0,
         created_by,
         created_by,

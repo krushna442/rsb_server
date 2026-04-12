@@ -28,6 +28,7 @@ async function createUsersTable() {
         column_array        JSON DEFAULT ('[]'),
         menu_array          JSON DEFAULT ('[]'),
         document_name_array JSON DEFAULT ('[]'),
+        mail_types          JSON DEFAULT ('[]'),
         profile_image       VARCHAR(255) DEFAULT NULL,
         is_active           TINYINT(1) DEFAULT 1,
         created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -291,6 +292,7 @@ async function createScannedProductsTable() {
         scanned_specification JSON DEFAULT ('{}'),
         matched_fields        JSON DEFAULT ('[]'),
         mismatched_fields     JSON DEFAULT ('[]'),
+        scanned_text_length   INT GENERATED ALWAYS AS (CHAR_LENGTH(scanned_text)) STORED,
 
         created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -305,12 +307,77 @@ async function createScannedProductsTable() {
         INDEX idx_validation_status (validation_status),
         INDEX idx_is_rejected       (is_rejected),
         INDEX idx_product_id        (product_id),
-        INDEX idx_created_at        (created_at)
+        INDEX idx_created_at        (created_at),
+        UNIQUE INDEX idx_unique_part_sl (part_no, part_sl_no, scanned_text_length)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
     console.log('✅ scanned_products table created/verified');
   } catch (error) {
     console.error('❌ Error creating scanned_products table:', error.message);
+    throw error;
+  }
+}
+
+async function createFieldImagesTable() {
+  try {
+    await query(`
+      CREATE TABLE IF NOT EXISTS field_images (
+        id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+
+        -- Which spec field this image belongs to
+        -- e.g. "mountingDetailsFlangeYoke", "mountingDetailsCouplingFlange",
+        --       "availableNoiseDeadener", "couplingFlangeOrientations"
+        field_name    VARCHAR(100) NOT NULL,
+
+        -- The dropdown option this file is associated with
+        -- e.g. "F/Y 150 DIA 4 HOLES"
+        option_value  VARCHAR(255) NOT NULL,
+
+        -- Relative path to the uploaded image/PDF on disk
+        file_path     VARCHAR(500) NOT NULL,
+
+        created_by    VARCHAR(100) DEFAULT NULL,
+        modified_by   VARCHAR(100) DEFAULT NULL,
+        created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+        -- Each (field_name, option_value) pair is unique (upsert behaviour)
+        UNIQUE KEY uq_field_option (field_name, option_value),
+
+        INDEX idx_field_name   (field_name),
+        INDEX idx_option_value (option_value)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+    console.log('✅ field_images table created/verified');
+  } catch (error) {
+    console.error('❌ Error creating field_images table:', error.message);
+    throw error;
+  }
+}
+
+async function createPDIReportTable() {
+  try {
+    await query(`
+      CREATE TABLE IF NOT EXISTS pdi_report (
+        id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+
+        name          VARCHAR(255) NOT NULL,
+        file_path     TEXT NOT NULL,
+
+        user_id       INT UNSIGNED NULL,
+
+        created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+      
+        INDEX idx_user_id   (user_id)
+
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    console.log('✅ user_documents table created/verified');
+  } catch (error) {
+    console.error('❌ Error creating user_documents table:', error.message);
     throw error;
   }
 }
@@ -326,7 +393,9 @@ export async function runBootstrap() {
     await createDynamicFieldsTable();
     await createProductsTable();
     await createScannedProductsTable();
+    await createFieldImagesTable();
     await createUsersTable();
+    await createPDIReportTable();
 
     console.log('🎉 Bootstrap completed successfully');
     return true;

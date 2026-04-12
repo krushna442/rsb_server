@@ -12,7 +12,10 @@ import {
   getAllUsers,
   updateUserProfile,
   deactivateUser,
-  deleteUser
+  deleteUser,
+  getMailTypesList,
+  addUserMailTypes,
+  removeUserMailTypes
 } from '../controllers/userController.js';
 
 import { protectRoute } from '../middlewares/authMiddleware.js';
@@ -62,5 +65,10 @@ router.post('/upload-image', protectRoute, upload.single('profile_image'), uploa
 router.put('/:id', protectRoute, updateUserProfile);
 router.put('/deactivate/:id', protectRoute, deactivateUser);
 router.delete('/:id', protectRoute, deleteUser);
+
+// mail_types operations
+router.get('/mail-types', protectRoute, getMailTypesList);                   // list valid types
+router.patch('/:id/mail-types/add', protectRoute, addUserMailTypes);         // subscribe
+router.patch('/:id/mail-types/remove', protectRoute, removeUserMailTypes);   // unsubscribe
 
 export default router;

@@ -104,8 +104,8 @@ function parseF2(text) {
   const partNo  = parts[1];
   const sl      = parts[2];
   const dateRaw = parts[3]; // "07.04.2026" or "NA"
-  // REV is typically at index 6, but fall back to first '#'-containing token
-  let revRaw = parts[6] ?? '';
+  // REV is typically at index 7, but fall back to first '#'-containing token
+  let revRaw = parts[7] ?? '';
   if (!revRaw || revRaw.toUpperCase() === 'NA') {
     revRaw = parts.find(p => p.includes('#')) ?? '#';
   }
