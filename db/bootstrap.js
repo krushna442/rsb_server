@@ -191,7 +191,7 @@ async function createDynamicFieldsTable() {
             { name: 'TRSO',              category: 'individual' },
             { name: 'IQA',               category: 'individual' },
             { name: 'PO COPY',           category: 'individual' },
-            { name: 'DRAWING',           category: 'individual' },
+            { name: 'Drawing',           category: 'individual' },
             { name: 'INSPECTION REPORT', category: 'individual' },
             { name: 'STICKER',           category: 'individual' },
             // ppap category
