@@ -11,8 +11,8 @@
  *        [0]=VENDOR [1]=PART_NO [2]=SL [3]=DATE [4..5]=NA [6]=REV
  *
  *  F3 – Fixed-width numeric block (no spaces / delimiters)
- *       PART_NO(14) + REV(2) + VENDOR(8) + MM(2) + YY(2) + SL(6)  → total 34
- *       (vendor may be 7 digits – handled below)
+ *       00 + PART_NO(12) + REV(2) + VENDOR(6|7|8) + MM(2) + YY(2) + SL(6)
+ *       Leading "00" is stripped from the 14-char block to get the real 12-digit part number.
  */
 
 /**
@@ -104,8 +104,8 @@ function parseF2(text) {
   const partNo  = parts[1];
   const sl      = parts[2];
   const dateRaw = parts[3]; // "07.04.2026" or "NA"
-  // REV is typically at index 7, but fall back to first '#'-containing token
-  let revRaw = parts[7] ?? '';
+  // REV is typically at index 6, but fall back to first '#'-containing token
+  let revRaw = parts[6] ?? '';
   if (!revRaw || revRaw.toUpperCase() === 'NA') {
     revRaw = parts.find(p => p.includes('#')) ?? '#';
   }
@@ -126,9 +126,12 @@ function parseF3(text) {
 
   /**
    * Supported fixed-width layouts (all numeric+alpha, no delimiters):
-   *   Layout A: partNo(14) + rev(2) + vendor(6) + MM(2) + YY(2) + SL(6)  = 32  ← confirmed
-   *   Layout B: partNo(14) + rev(2) + vendor(7) + MM(2) + YY(2) + SL(6)  = 33
-   *   Layout C: partNo(14) + rev(2) + vendor(8) + MM(2) + YY(2) + SL(6)  = 34
+   *   Layout A: 00+partNo(12) + rev(2) + vendor(6) + MM(2) + YY(2) + SL(6)  = 32  ← confirmed
+   *   Layout B: 00+partNo(12) + rev(2) + vendor(7) + MM(2) + YY(2) + SL(6)  = 33
+   *   Layout C: 00+partNo(12) + rev(2) + vendor(8) + MM(2) + YY(2) + SL(6)  = 34
+   *
+   * The first 14 chars are consumed as a block; the leading "00" is then
+   * stripped to yield the real 12-digit part number.
    */
   const layouts = [
     { partLen: 14, vendorLen: 6 },  // total 32 – confirmed from real sample
@@ -141,11 +144,12 @@ function parseF3(text) {
     if (t.length !== total) continue;
 
     let offset = 0;
-    const partNo = t.slice(offset, offset + partLen); offset += partLen;
-    const revRaw = t.slice(offset, offset + 2);        offset += 2;
+    // Consume 14 chars but strip the leading "00" to get the real 12-digit part number
+    const partNo = t.slice(offset, offset + partLen).replace(/^00/, ''); offset += partLen;
+    const revRaw = t.slice(offset, offset + 2);         offset += 2;
     const vendor = t.slice(offset, offset + vendorLen); offset += vendorLen;
-    const month  = t.slice(offset, offset + 2);        offset += 2;
-    const year   = '20' + t.slice(offset, offset + 2); offset += 2;
+    const month  = t.slice(offset, offset + 2);         offset += 2;
+    const year   = '20' + t.slice(offset, offset + 2);  offset += 2;
     const sl     = t.slice(offset, offset + 6);
 
     const rev = normaliseRev(revRaw);
