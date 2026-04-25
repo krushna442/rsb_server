@@ -283,6 +283,7 @@ async function createScannedProductsTable() {
         vendorCode     VARCHAR(100),
 
         is_rejected       TINYINT(1) DEFAULT 0,
+        is_remarks_edited TINYINT(1) DEFAULT 0,
 
         created_by        VARCHAR(100),
         modified_by       VARCHAR(100),
@@ -308,7 +309,7 @@ async function createScannedProductsTable() {
         INDEX idx_is_rejected       (is_rejected),
         INDEX idx_product_id        (product_id),
         INDEX idx_created_at        (created_at),
-        UNIQUE INDEX idx_unique_part_sl (part_no, part_sl_no, scanned_text_length)
+        UNIQUE INDEX idx_unique_part_sl (part_no, part_sl_no, scanned_text_length,validation_status)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
     console.log('✅ scanned_products table created/verified');

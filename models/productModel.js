@@ -250,7 +250,6 @@ export const updateProduct = async (
 
       // ── Track edited fields (only non-privileged users) ──────────────────
       if (
-        !isPrivileged &&
         changed.length > 0 &&
         existing.quality_verified === 'approved'
       ) {
@@ -259,14 +258,12 @@ export const updateProduct = async (
         ];
         fields.push('edited = 1', 'edited_fields = ?');
         values.push(JSON.stringify(allEdited));
-      }
-
-      // ── Pending logic (only non-privileged users) ────────────────────────
-      if (!isPrivileged) {
+      
         const shouldPending = changed.some((f) => pendingFields.includes(f));
         if (shouldPending) {
           fields.push("status = 'pending'");
           fields.push("quality_verified = 'pending'");
+          fields.push("approved = 'pending'");
         }
       }
     }
@@ -327,6 +324,19 @@ export const setApprovalStatus = async (id, status, modified_by = null, remarks 
         [status, remarks || "Approval status updated", modified_by, id]
       );
     }
+    // ✅ clear edited fields if approved
+    if(status=="approved"){
+      const product = await findProductById(id);
+
+      if (product.edited_fields && product.edited_fields.length > 0 && product.quality_verified=="approved") {
+        await execute(
+          `UPDATE products
+           SET edited_fields = ?, edited = 0
+           WHERE id = ?`,
+          [JSON.stringify([]), id]
+        );
+      }
+    }
 
     return await findProductById(id);
 
@@ -382,7 +392,7 @@ export const setQualityStatus = async (id, status, modified_by = null, remarks =
     if (status === "approved") {
       const product = await findProductById(id);
 
-      if (product.edited_fields && product.edited_fields.length > 0) {
+      if (product.edited_fields && product.edited_fields.length > 0 && product.approved === "approved") {
         await execute(
           `UPDATE products
            SET edited_fields = ?, edited = 0

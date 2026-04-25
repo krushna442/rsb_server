@@ -24,7 +24,7 @@ const PORT = process.env.PORT || 5000;
 // ✅ CORS setup
 app.use(
   cors({
-    origin: ["http://localhost:5173", "http://localhost:3000","http://10.99.45.17:3000","http://192.168.1.10:3000","http://10.99.45.17:3001","http://192.168.1.10:3000"],
+    origin: ["http://192.168.1.8:3000", "http://172.22.39.17:3000","http://10.99.45.17:3000","http://192.168.1.10:3000","http://10.99.45.17:3001","http://192.168.1.10:3000"],
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
     allowedHeaders: ["Content-Type", "Authorization"],
@@ -64,7 +64,7 @@ async function startServer() {
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  initShiftReportCrons(); // ✅ moved here
+  // initShiftReportCrons(); // ✅ moved here
 });
   } catch (err) {
     console.error("Startup error:", err);

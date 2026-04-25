@@ -4,7 +4,9 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const transporter = nodemailer.createTransport({
-  service: "gmail",
+      host: "mapi.mailngx.com",
+      port: 587, // try 587 first
+      secure: false, // true if using 465
   auth: {
     user: process.env.MAIL_USER,
     pass: process.env.MAIL_PASSWORD,

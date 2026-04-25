@@ -96,11 +96,29 @@ function detectPartType(product) {
 
 // ─────────────────────────────────────────────
 //  Tube / total length ±2 random variant
+//  Uses crypto-grade entropy to avoid fixed patterns.
 // ─────────────────────────────────────────────
 function randomVariant(base, range = 2) {
   const n = parseInt(base, 10);
   if (isNaN(n)) return base;
-  return n + Math.floor(Math.random() * (range * 2 + 1)) - range;
+  // Pick a random delta in [-range, +range] using two independent Math.random calls
+  // so consecutive calls cannot be guessed as a fixed sequence.
+  const sign  = Math.random() < 0.5 ? -1 : 1;
+  const delta = Math.floor(Math.random() * (range + 1));   // 0..range
+  return n + sign * delta;
+}
+
+// ─────────────────────────────────────────────
+//  Strip ±tolerance from a length string and return the numeric base.
+//  e.g. "3392±5"  → 3392
+//       "1060±2"  → 1060
+//       "1060"    → 1060
+// ─────────────────────────────────────────────
+function parseTotalLength(raw) {
+  if (!raw) return NaN;
+  // Remove everything from ± (or +/-) onwards, then strip non-numeric chars
+  const cleaned = String(raw).split(/[±+\-]/)[0].replace(/[^0-9]/g, '');
+  return parseInt(cleaned, 10);
 }
 
 // ─────────────────────────────────────────────
@@ -607,101 +625,202 @@ async function buildPDIExcel(partNumber, records, product, shiftLetter, reportDa
 
   // ── Build dynamic observation values ─────────────────────────────────
   const tubeLengthBase  = parseInt(spec.tubeLength, 10) || 1000;
-  const totalLengthBase = parseInt((spec.totalLength || '').replace(/[^0-9]/g, ''), 10) || 1400;
+  // Strip ±tolerance (e.g. "3392±5" → 3392) then apply ±0-2 random
+  const totalLengthBase = parseTotalLength(spec.totalLength) || 1400;
 
-  const tubeLengths  = Array.from({ length: sampleSize }, () => randomVariant(tubeLengthBase, 2));
+  // For INTEGRATED: tube length is IDENTICAL across all samples (no random variation)
+  const isIntegrated = partType === 'INTEGRATED';
+
+  const tubeLengths  = isIntegrated
+    ? Array(sampleSize).fill(tubeLengthBase)
+    : Array.from({ length: sampleSize }, () => randomVariant(tubeLengthBase, 2));
   const totalLengths = Array.from({ length: sampleSize }, () => randomVariant(totalLengthBase, 2));
   const scannedTexts = sampleRecords.map(rec => rec.scanned_text ?? 'Ok');
 
-  const greaseVal   = spec.greaseableOrNonGreaseable || 'NON GREASABLE';
-  const tubeOD      = spec.tubeDiameter             || 'As per control plan';
-  const cbKit       = spec.cbKitDetails              || 'As per Control Plan';
-  const couplingOri = spec.couplingFlangeOrientations || 'As per Control Plan';
-  const deadener    = spec.availableNoiseDeadener    || 'No';
+  const greaseVal     = spec.greaseableOrNonGreaseable   || 'NON GREASABLE';
+  const tubeOD        = spec.tubeDiameter                || 'As per control plan';
+  const cbKit         = spec.cbKitDetails                || 'As per Control Plan';
+  const couplingOri   = spec.couplingFlangeOrientations  || '90';
+  const deadener      = spec.availableNoiseDeadener      || 'No';
+  const flangeYoke    = spec.mountingDetailsFlangeYoke   || 'As per control plan';
+  const couplingFlange= spec.mountingDetailsCouplingFlange|| 'COUPLING YOKE';
 
-  // ── FRONT / MIDDLE: 24 check rows ────────────────────────────────────
+  // helper to pad obs array to sampleSize
+  const obs = (val) => Array(sampleSize).fill(val);
+
+  // ── FRONT / MIDDLE: 25 check rows ────────────────────────────────────
   if (partType === 'FRONT' || partType === 'MIDDLE') {
     const checks = [
       [1,  'Tube Length',
             'As per Control Plan', 'Measuring Tape',
-            tubeLengths, 'All Shaft Found of ok',
-            'Checked in process/poka yoke Control'],
-      [2,  'Matching of Tube Length in QR Code/Bar Code Sticker & actual',
-            'QR Code/Bar Code Sticker & actual', 'Visual',
-            Array(sampleSize).fill('Ok'), 'All Shaft Found of ok', ''],
-      [3,  'QR Code/Bar Code Sticker Proper Scanning',
+            tubeLengths, 'All Shaft Found of ok', 'Checked in process/poka yoke Control'],
+      [2,  'Matching of Tube Length in Bar Code /QR Code Sticker & actual',
+            'Match tube length with QR Sticker', 'Visual',
+            obs('OK'), 'All Shaft Found of ok', ''],
+      [3,  'Bar Code / QR Code Sticker Proper Scanning',
             'Checked Part Number, Drawing Modification no and date', 'Barcode/ QR Code Scanner',
             scannedTexts, 'All Shaft Found of ok', ''],
       [4,  'Total Flange to Flange Length In Closed Condition (CLOSE LENGTH BATCH WISE 1PCS)',
             'As per Control Plan', 'Measuring Tape',
-            totalLengths, 'All Shaft Found of ok',
-            'Checked in process/poka yoke Control'],
+            totalLengths, 'All Shaft Found of ok', 'Checked in process/poka yoke Control'],
       [5,  'Type of Centre Bearing Kit',
             'As per Control Plan', 'Visual',
-            Array(sampleSize).fill(cbKit), 'All Shaft Found of ok', ''],
+            obs(cbKit), 'All Shaft Found of ok', ''],
       [6,  'Rotary Movement Of Centre Bearing Kit',
             'No jamming of center Brg.Rotation', 'Hand Feel',
-            Array(sampleSize).fill('Ok'), 'All Shaft Found of ok', ''],
+            obs('OK'), 'All Shaft Found of ok', ''],
       [7,  'Coupling Flange Orientations (As per QA Alert)',
-            'As per Control Plan (checked Mounting hole Orientation)', 'Visual',
-            Array(sampleSize).fill(couplingOri), 'All Shaft Found of ok', ''],
+            'As per Control Plan (checked Mounting hole Orientatio)', 'Visual',
+            obs(couplingOri), 'All Shaft Found of ok', ''],
       [8,  'UJ Movement (Smooth)',
-            'Proper And Equal Freeness', 'Hand Feel',
-            Array(sampleSize).fill('Ok'), 'All Shaft Found of ok', ''],
+            'Proper And Equal Freeness', 'Hand Feel/ Torque gauge',
+            obs('OK'), 'All Shaft Found of ok', ''],
       [9,  'Circlip Seating/ Circlip Missing',
             'No circlip missing, proper setting and no crack', 'Visual',
-            Array(sampleSize).fill('Ok'), 'All Shaft Found of ok', ''],
+            obs('OK'), 'All Shaft Found of ok', ''],
       [10, 'Paint Missing at Slip Area & UJ Area',
             'No paint missing at uj Area, No paint allow in slip joint, grease nipple, and uj area', 'Visual',
-            Array(sampleSize).fill('Ok'), 'All Shaft Found of ok', ''],
+            obs('OK'), 'All Shaft Found of ok', ''],
       [11, 'Paint Condition',
             '(No Run Down/Blisters/Patches, No paint allow in center bearing Area)', 'Visual',
-            Array(sampleSize).fill('Ok'), 'All Shaft Found of ok', ''],
+            obs('OK'), 'All Shaft Found of ok', ''],
       [12, 'Anti Rust Oil @ Machining Area',
             'No anti rust oil missing in machining Area', 'Visual',
-            Array(sampleSize).fill('Ok'), 'All Shaft Found of ok', ''],
+            obs('OK'), 'All Shaft Found of ok', ''],
       [13, 'Locking of Cheknuts',
             'Hex Nut lock by punching', 'Visual',
-            Array(sampleSize).fill('Ok'), 'All Shaft Found of ok', ''],
+            obs('OK'), 'All Shaft Found of ok', ''],
       [14, 'Proper Adhesion on Painted Surface (4B)',
             'No Paint peel off Allow On Prop Shaft', 'Visual (As Per Standard)',
-            Array(sampleSize).fill('Ok'), 'All Shaft Found of ok', ''],
+            obs('OK'), 'All Shaft Found of ok', ''],
       [15, 'Rust free',
             'No Rust allow on prop shaft', 'Visual',
-            Array(sampleSize).fill('Ok'), 'All Shaft Found of ok', ''],
+            obs('OK'), 'All Shaft Found of ok', ''],
       [16, 'No Welding Defect',
             'No Blow hole, porosity, spatter, under cut allow', 'Visual',
-            Array(sampleSize).fill('Ok'), 'All Shaft Found of ok', ''],
+            obs('OK'), 'All Shaft Found of ok', ''],
       [17, 'Proper Seating of Balancing Weight Condition On Tube',
             'Proper setting', 'Visual Checked By hammer',
-            Array(sampleSize).fill('Ok'), 'All Shaft Found of ok', ''],
+            obs('OK'), 'All Shaft Found of ok', ''],
       [18, 'Grease Nipple Condition & Status',
             'No freeness and loose', 'Visual',
-            Array(sampleSize).fill(greaseVal), 'All Shaft Found of ok', ''],
-      [19, 'Mounting Hole Centre Distances',
+            obs(greaseVal), 'All Shaft Found of ok', ''],
+      [19, 'Ensure Greasing at All Arms Of UJ',
+            'As per control plan', 'Visual',
+            obs(greaseVal), 'All Shaft Found of ok', ''],
+      [20, 'Mounting Hole Centre Distances',
             'As per control plan', 'Vernier/ Checking Fixture',
-            Array(sampleSize).fill('Ok'), 'All Shaft Found of ok', 'As per control plan'],
-      [20, 'Mounting hole ID',
-            'As per control plan', 'Checking Pin /Round plug Gauge',
-            Array(sampleSize).fill('Ok'), 'All Shaft Found of ok', 'As per control plan'],
-      [21, 'Drill Hole (4 nos)',
-            'As per control plan', 'Checking Pin /Round plug Gauge',
-            Array(sampleSize).fill('Ok'), 'All Shaft Found of ok',
-            'Incoming control (Checked on Sampling plan)'],
-      [22, 'PCD',
+            obs('OK'), 'All Shaft Found of ok', 'As per control plan'],
+      [21, 'Flange yoke Serration teeth (Ø180/Ø150/Ø120, 4-holes)',
+            'As per control plan', 'Mating Part',
+            obs(flangeYoke), 'All Shaft Found of ok', 'As per control plan'],
+      [22, 'PCD (Both Side) Drill Hole (4 nos)',
+            'As per control plan', 'Checking Fixture/Round plug Gauge',
+            obs('OK'), 'All Shaft Found of ok', 'Incoming control (Checked on Sampling plan)'],
+      [23, 'PCD',
             'As per control plan', 'Checking Fixture',
-            Array(sampleSize).fill('Ok'), 'All Shaft Found of ok',
-            'Incoming control (Checked on Sampling plan)'],
-      [23, 'Tube OD',
+            obs('OK'), 'All Shaft Found of ok', 'Incoming control (Checked on Sampling plan)'],
+      [24, 'Tube OD',
             'As per control plan', 'Vernier /snap gauge',
-            Array(sampleSize).fill(tubeOD), 'All Shaft Found of ok',
-            'Incoming control (Checked on Sampling plan)'],
-      [24, 'Deadener available',
-            'AS per control plan', 'Sound detect',
-            Array(sampleSize).fill(deadener), 'All Shaft Found of ok', ''],
+            obs(tubeOD), 'All Shaft Found of ok', ''],
+      [25, 'Deadener available',
+            'As per control plan', 'Sound detect',
+            obs(deadener), 'All Shaft Found of ok', ''],
     ];
-    checks.forEach(([sr, char, sp, mode, obs, status, rem]) => {
-      writePDIRow(sheet, r, sr, char, sp, mode, obs, status, rem); r++;
+    checks.forEach(([sr, char, sp, mode, ob, status, rem]) => {
+      writePDIRow(sheet, r, sr, char, sp, mode, ob, status, rem); r++;
+    });
+
+  } else if (partType === 'INTEGRATED') {
+    // ── INTEGRATED: 27 check rows ─────────────────────────────────────
+    // Tube lengths 2 & 3 are individual tube lengths; same value for all samples
+    const tubeLenFront = tubeLengthBase;
+    const tubeLenRear  = parseInt(spec.tubeLengthRear, 10) || tubeLengthBase;
+    const checks = [
+      [1,  'Stickering in propeller shaft.',
+            'As per control plan', 'Visually',
+            obs('ok'), 'All shaft found ok', 'checked in process/poka yoke control'],
+      [2,  'Propeller shaft tube Length (Front)',
+            'As per control plan', 'Measuring Tape',
+            obs(tubeLenFront), 'All shaft found ok', 'checked in process/poka yoke control'],
+      [3,  'Propeller shaft tube Length (Rear)',
+            'As per control plan', 'Measuring Tape',
+            obs(tubeLenRear), 'All shaft found ok', 'checked in process/poka yoke control'],
+      [4,  'Total Flange to Flange Length In Closed Condition (CLOSE LENGTH BATCH WISE 1PCS)',
+            'As per control plan', 'Measuring Tape',
+            totalLengths, 'All shaft found ok', 'checked in process/poka yoke control'],
+      [5,  'No jamming of center Brg rotation',
+            'As per control plan', 'Hand Feeling',
+            obs('ok'), 'All shaft found ok', ''],
+      [6,  'Long Fork Sliding movement',
+            'Smooth slide movement', 'Hand Feeling',
+            obs('ok'), 'All shaft found ok', ''],
+      [7,  'No welding defect (Blow hole, porosity, spatters etc)',
+            'No Blow hole, porosity, spatter, under cut allow', 'Visually',
+            obs('ok'), 'All shaft found ok', ''],
+      [8,  'No grease nipple missing, broken, loose',
+            'No free ness and loose', 'Hand Feeling, Visual',
+            obs('ok'), 'All shaft found ok', ''],
+      [9,  'No circlip missing/crack',
+            'No circlip missing, proper setting and no crack', 'visual',
+            obs('ok'), 'All shaft found ok', ''],
+      [10, 'No paint missing at UJ Area',
+            'No paint missing at uj Area, No paint allow in slip joint, grease nipple, cb and uj area', 'visual',
+            obs('ok'), 'All shaft found ok', ''],
+      [11, 'Paint Quality (No rundown, No blister)',
+            'No paint missing at uj Area, No Rundown, No Blister', 'visual',
+            obs('ok'), 'All shaft found ok', ''],
+      [12, 'Antirust at machining area',
+            'No anti rust oil missing in machining Area', 'visual',
+            obs('ok'), 'All shaft found ok', ''],
+      [13, 'Arrow mark punch',
+            'for Check Same plane', 'Visual',
+            obs('ok'), 'All shaft found ok', ''],
+      [14, 'No mismatch of Bracket hole & clamp hole',
+            'As per control plan', 'By putting plug gauge',
+            obs('ok'), 'All shaft found ok', ''],
+      [15, 'Locking of check nut',
+            'As per control plan', 'Visual',
+            obs('ok'), 'All shaft found ok', ''],
+      [16, 'Ensure the same Sl. No, Year and Month code. On both short fork',
+            'Checked Part Number Drawing modification no and date', 'visual',
+            obs('ok'), 'All shaft found ok', ''],
+      [17, 'Coupling flange orientation: change only tube length (See the BOM dashboard software)',
+            'As per Control Plan (checked Mounting hole Orientatio)', 'visual',
+            obs(couplingOri), 'All shaft found ok', ''],
+      [18, 'Ensure Orientation of two hook',
+            'As per control plan', 'visual',
+            obs('ok'), 'All shaft found ok', ''],
+      [19, 'Ensure the Grease nipple cap (U.J)',
+            'As per control plan', 'visual',
+            obs('OK'), 'All shaft found ok', ''],
+      [20, 'Ensure Greasing at All Arms Of UJ',
+            'As per control plan', 'Visual',
+            obs(greaseVal), 'All shaft found ok', ''],
+      [21, 'Ensure Flange yoke dia (150, 120 dia, /4 holes)',
+            'As per control plan', 'Matching Part',
+            obs(flangeYoke), 'All shaft found ok', 'incoming control (checked on Sampling plan)'],
+      [22, 'Coupling Flange Dia (150, 120 dia /4 holes)',
+            'As per control plan', 'Matching Part',
+            obs(couplingFlange), 'All shaft found ok', 'incoming control (checked on Sampling plan)'],
+      [23, 'Rust free',
+            'No Rust allow on prop shaft', 'visual',
+            obs('OK'), 'All shaft found ok', ''],
+      [24, 'Drill Hole (4 nos) (Both Side)',
+            'As per control plan', 'Checking Pin /Round plug Gauge',
+            obs('ok'), 'All shaft found ok', 'incoming control (checked on Sampling plan)'],
+      [25, 'PCD (Both Side)',
+            'As per control plan', 'Checking Fixture',
+            obs('ok'), 'All shaft found ok', 'incoming control (checked on Sampling plan)'],
+      [26, 'Tube OD',
+            'As per control plan', 'Vernier/snap gauge',
+            obs(tubeOD), 'All shaft found ok', ''],
+      [27, 'Deadener available',
+            'As per control plan', 'Sound detect',
+            obs(deadener), 'All shaft found ok', ''],
+    ];
+    checks.forEach(([sr, char, sp, mode, ob, status, rem]) => {
+      writePDIRow(sheet, r, sr, char, sp, mode, ob, status, rem); r++;
     });
 
   } else {
@@ -709,80 +828,76 @@ async function buildPDIExcel(partNumber, records, product, shiftLetter, reportDa
     const checks = [
       [1,  'Tube Length',
             'AS per control plan', 'Measuring Tape',
-            tubeLengths, 'All Shaft Found of ok',
-            'Checked in process/poka yoke Control'],
-      [2,  'Matching of Tube Length in QR Code/Bar code Sticker & actual',
-            'Match tube length with QR/BarCode Sticker', 'Visual',
-            Array(sampleSize).fill('Ok'), 'All Shaft Found of ok', ''],
-      [3,  'QR Code/ Bar Code Sticker Proper Scanning',
+            tubeLengths, 'All Shaft Found of ok', 'Checked in process/poka yoke Control'],
+      [2,  'Matching of Tube Length in QR Code Sticker & actual',
+            'Match tube length with QR Sticker', 'Visual',
+            obs('Ok'), 'All Shaft Found of ok', ''],
+      [3,  'QR Code Sticker Proper Scanning',
             'Checked Part Number, Drawing Modification no and date', 'Barcode/ QR Code Scanner',
             scannedTexts, 'All Shaft Found of ok', ''],
       [4,  'Total Flange to Flange Length In Closed Condition (CLOSE LENGTH BATCH WISE 1PCS)',
             'AS per control plan', 'Measuring Tape',
-            totalLengths, 'All Shaft Found of ok',
-            'Checked in process/poka yoke Control'],
+            totalLengths, 'All Shaft Found of ok', 'Checked in process/poka yoke Control'],
       [5,  'To Maintain the Opening of Slide Joint for easy Fitment @ Customer end',
             'As per requirement Match With visual alert', 'Visual/Gauge',
-            Array(sampleSize).fill('Ok'), 'All Shaft Found of ok', ''],
+            obs('Ok'), 'All Shaft Found of ok', ''],
       [6,  'Long Fork Slide Movement (Smooth/Free)',
             'Smooth Slide Movement', 'Hand Feel',
-            Array(sampleSize).fill('Ok'), 'All Shaft Found of ok', ''],
-      [7,  'Coupling Flange Orientations (BOM DASHBOARD)',
+            obs('Ok'), 'All Shaft Found of ok', ''],
+      [7,  'Position of Both End Eye Hole Centre Line.',
             'Aligned (check Orientation OF Mounting Hole)', 'Visual',
-            Array(sampleSize).fill('Ok'), 'All Shaft Found of ok', ''],
+            obs('Ok'), 'All Shaft Found of ok', ''],
       [8,  'UJ Movement (Smooth)',
             'Proper And Equal Freeness', 'Hand Feel',
-            Array(sampleSize).fill('Ok'), 'All Shaft Found of ok', ''],
+            obs('Ok'), 'All Shaft Found of ok', ''],
       [9,  'Circlip Seating/ Circlip Missing',
             'No circlip missing, proper setting and no crack', 'Visual',
-            Array(sampleSize).fill('Ok'), 'All Shaft Found of ok', ''],
+            obs('Ok'), 'All Shaft Found of ok', ''],
       [10, 'No paint missing at slip joint area, UJ Area',
             'No paint missing at uj Area, No paint allow in slip joint, grease nipple, cb and uj area', 'Visual',
-            Array(sampleSize).fill('Ok'), 'All Shaft Found of ok', ''],
+            obs('Ok'), 'All Shaft Found of ok', ''],
       [11, 'Paint Condition',
             '(No Run Down/Blisters/Patches)', 'Visual',
-            Array(sampleSize).fill('Ok'), 'All Shaft Found of ok', ''],
+            obs('Ok'), 'All Shaft Found of ok', ''],
       [12, 'Anti Rust Oil @ Machining Area',
             'No anti rust oil missing in machining Area', 'Visual',
-            Array(sampleSize).fill('Ok'), 'All Shaft Found of ok', ''],
+            obs('Ok'), 'All Shaft Found of ok', ''],
       [13, 'Proper Adhesion on Painted Surface (4B)',
             'No Paint peel off Allow On Prop Shaft', 'Visual (As Per Standard)',
-            Array(sampleSize).fill('Ok'), 'All Shaft Found of ok', ''],
+            obs('Ok'), 'All Shaft Found of ok', ''],
       [14, 'No Welding Defect',
             'No Blow hole, porosity, spatter, under cut allow', 'Visual',
-            Array(sampleSize).fill('Ok'), 'All Shaft Found of ok', ''],
+            obs('Ok'), 'All Shaft Found of ok', ''],
       [15, 'Proper Seating of Balancing Weight Condition On Tube',
             'Proper setting', 'Visual',
-            Array(sampleSize).fill('Ok'), 'All Shaft Found of ok', ''],
+            obs('Ok'), 'All Shaft Found of ok', ''],
       [16, 'Grease Nipple Condition & Status',
             'No freeness and loose', 'Visual',
-            Array(sampleSize).fill('OK'), 'All Shaft Found of ok', ''],
+            obs('OK'), 'All Shaft Found of ok', ''],
       [17, 'Arrow Mark Punch',
             'For Check Same plane', 'Visual',
-            Array(sampleSize).fill('Ok'), 'All Shaft Found of ok', ''],
+            obs('Ok'), 'All Shaft Found of ok', ''],
       [18, 'Ensure Greasing at All Arms Of UJ',
             'AS per control plan', 'Visual',
-            Array(sampleSize).fill(greaseVal), 'All Shaft Found of ok', ''],
+            obs(greaseVal), 'All Shaft Found of ok', ''],
       [19, 'Rust free',
             'No Rust allow on prop shaft', 'Visual',
-            Array(sampleSize).fill('Ok'), 'All Shaft Found of ok', ''],
-      [20, 'Drill Hole (4 nos) (Both Side)',
-            'AS per control plan', 'Checking Pin /Round plug Gauge',
-            Array(sampleSize).fill('Ok'), 'All Shaft Found of ok',
-            'Incoming control (Checked on Sampling plan)'],
-      [21, 'PCD (Both Side)',
-            'AS per control plan', 'Checking Fixture',
-            Array(sampleSize).fill('Ok'), 'All Shaft Found of ok',
-            'Incoming control (Checked on Sampling plan)'],
+            obs('Ok'), 'All Shaft Found of ok', ''],
+      [20, 'Flange yoke Serration teeth (Ø180/Ø150/Ø120, 4-holes)',
+            'As per control plan', 'Mating Part',
+            obs(flangeYoke), 'All Shaft Found of ok', 'As per control plan'],
+      [21, 'PCD (Both Side) Drill Hole (4 nos)',
+            'AS per control plan', 'Checking Fixture/Round plug Gauge',
+            obs('Ok'), 'All Shaft Found of ok', 'Incoming control (Checked on Sampling plan)'],
       [22, 'Tube OD',
             'AS per control plan', 'Vernier/snap gauge',
-            Array(sampleSize).fill(tubeOD), 'All Shaft Found of ok', ''],
+            obs(tubeOD), 'All Shaft Found of ok', ''],
       [23, 'Deadener available',
             'AS per control plan', 'Sound detect',
-            Array(sampleSize).fill(deadener), 'All Shaft Found of ok', ''],
+            obs(deadener), 'All Shaft Found of ok', ''],
     ];
-    checks.forEach(([sr, char, sp, mode, obs, status, rem]) => {
-      writePDIRow(sheet, r, sr, char, sp, mode, obs, status, rem); r++;
+    checks.forEach(([sr, char, sp, mode, ob, status, rem]) => {
+      writePDIRow(sheet, r, sr, char, sp, mode, ob, status, rem); r++;
     });
   }
 
@@ -825,10 +940,12 @@ async function buildPDIExcel(partNumber, records, product, shiftLetter, reportDa
   formRow.alignment = leftAlign(); formRow.fill = greyFill();
   applyBorder(formRow, BORDER_LIGHT); sheet.getRow(r).height = 16;
 
-  sheet.views = [{ state: 'frozen', xSplit: 0, ySplit: 7, activeCell: 'A8' }];
+  // No frozen panes — header is NOT sticky per requirement
+  // sheet.views intentionally omitted
 
   return saveWorkbook(workbook, filename);
 }
+
 
 // ─────────────────────────────────────────────
 //  Build Monthly Products Excel
@@ -914,14 +1031,24 @@ async function buildMonthlyProductsExcel(products, monthLabel, filename) {
 }
 
 // ─────────────────────────────────────────────
-//  F1 scan-text detection helper
-//  Returns true when the scanned_text is F1 format.
-//  F1 records are excluded from part-number PDI sheets.
+//  F1 / F5 scan-text detection helpers
+//  F1 and F5 records are excluded from part-number PDI sheets.
 // ─────────────────────────────────────────────
 function isScanTextF1(scannedText) {
   if (!scannedText) return false;
-  // F1 pattern: contains "Rev No#" (case-insensitive) but no '$' delimiter
   return /rev\s*no\s*#/i.test(scannedText) && !scannedText.includes('$');
+}
+
+function isScanTextF5(scannedText) {
+  if (!scannedText) return false;
+  const t = scannedText.trim();
+  return (
+    t.length === 28 &&
+    /^[A-Z0-9]+$/i.test(t) &&
+    /^[A-Z]/i.test(t[0]) &&
+    t[9] === 'V' &&
+    !t.startsWith('00')
+  );
 }
 
 // ─────────────────────────────────────────────
@@ -936,12 +1063,13 @@ async function buildShiftAttachments(rows, shiftLetter, shiftLabel, reportDate) 
   const scanFilePath = await buildScanExcel(rows, shiftLabel, reportDate, scanFilename);
   const attachments = [ attachmentFromPath(scanFilePath) ];
 
-  // ── 2. Group records by part_no, excluding F1 for PDI sheets ──────────
+  // ── 2. Group records by part_no, excluding F1 and F5 for PDI sheets ───
   const partGroups = {};
   for (const row of rows) {
     if (!row.part_no) continue;
-    // Skip F1-format scans for part-number PDI sheets
+    // Skip F1 and F5-format scans for part-number PDI sheets
     if (isScanTextF1(row.scanned_text)) continue;
+    if (isScanTextF5(row.scanned_text)) continue;
     if (!partGroups[row.part_no]) partGroups[row.part_no] = [];
     partGroups[row.part_no].push(row);
   }
@@ -1046,7 +1174,7 @@ function dayEmailHTML({ reportDate, shiftsSummary, total, passed, failed, partSu
   <div style="font-family:Arial,sans-serif;max-width:700px;margin:auto;">
     <div style="background:#1F3864;padding:20px 24px;border-radius:8px 8px 0 0;">
       <h2 style="color:#fff;margin:0;">📅 Daily PDI Production Report</h2>
-      <p style="color:#a8c4e0;margin:4px 0 0;">Date: ${reportDate} &nbsp;|&nbsp; Shifts A + B + C</p>
+      <p style="color:#a8c4e0;padding-top:5px; padding-bottom:5px;">Date: ${reportDate} &nbsp;|&nbsp; Shifts A + B + C</p>
     </div>
     <div style="border:1px solid #dce6f1;border-top:none;padding:24px;border-radius:0 0 8px 8px;">
       <p style="color:#333;font-size:14px;">
@@ -1054,20 +1182,33 @@ function dayEmailHTML({ reportDate, shiftsSummary, total, passed, failed, partSu
         Daily scan report for <strong>${reportDate}</strong> covering all 3 shifts (A/B/C).
       </p>
 
+      <table style="width:100%;border-collapse:collapse;">
+  <tr>
+    <!-- LEFT: Day Totals -->
+    <td style="width:50%;vertical-align:top;padding-right:10px;">
       <h3 style="color:#1F3864;border-bottom:2px solid #dce6f1;padding-bottom:6px;">Day Totals</h3>
       <table style="width:100%;border-collapse:collapse;margin:8px 0 20px;">
         <tr style="background:#dce6f1;">
           <th style="padding:10px;text-align:left;border:1px solid #c0cfe4;">Metric</th>
           <th style="padding:10px;text-align:center;border:1px solid #c0cfe4;">Count</th>
         </tr>
-        <tr><td style="padding:10px;border:1px solid #e0e0e0;">Total Scanned</td>
-            <td style="padding:10px;text-align:center;font-weight:bold;border:1px solid #e0e0e0;">${total}</td></tr>
-        <tr style="background:#f9f9f9;"><td style="padding:10px;border:1px solid #e0e0e0;">✅ Passed</td>
-            <td style="padding:10px;text-align:center;color:#2e7d32;font-weight:bold;border:1px solid #e0e0e0;">${passed}</td></tr>
-        <tr><td style="padding:10px;border:1px solid #e0e0e0;">❌ Failed</td>
-            <td style="padding:10px;text-align:center;color:#c62828;font-weight:bold;border:1px solid #e0e0e0;">${failed}</td></tr>
+        <tr>
+          <td style="padding:10px;border:1px solid #e0e0e0;">Total Scanned</td>
+          <td style="padding:10px;text-align:center;font-weight:bold;border:1px solid #e0e0e0;">${total}</td>
+        </tr>
+        <tr style="background:#f9f9f9;">
+          <td style="padding:10px;border:1px solid #e0e0e0;">✅ Passed</td>
+          <td style="padding:10px;text-align:center;color:#2e7d32;font-weight:bold;border:1px solid #e0e0e0;">${passed}</td>
+        </tr>
+        <tr>
+          <td style="padding:10px;border:1px solid #e0e0e0;">❌ Failed</td>
+          <td style="padding:10px;text-align:center;color:#c62828;font-weight:bold;border:1px solid #e0e0e0;">${failed}</td>
+        </tr>
       </table>
+    </td>
 
+    <!-- RIGHT: Shift Breakdown -->
+    <td style="width:50%;vertical-align:top;padding-left:10px;">
       <h3 style="color:#1F3864;border-bottom:2px solid #dce6f1;padding-bottom:6px;">Per Shift Breakdown</h3>
       <table style="width:100%;border-collapse:collapse;margin:8px 0 20px;">
         <tr style="background:#dce6f1;">
@@ -1078,6 +1219,9 @@ function dayEmailHTML({ reportDate, shiftsSummary, total, passed, failed, partSu
         </tr>
         ${shiftRows}
       </table>
+    </td>
+  </tr>
+</table>
 
       <h3 style="color:#1F3864;border-bottom:2px solid #dce6f1;padding-bottom:6px;">Part Number Summary</h3>
       <table style="width:100%;border-collapse:collapse;margin:8px 0;">
