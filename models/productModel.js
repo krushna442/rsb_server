@@ -265,6 +265,10 @@ export const updateProduct = async (
           fields.push("quality_verified = 'pending'");
           fields.push("approved = 'pending'");
         }
+      } else if (existing.status =='rejected'){
+        fields.push("approved = 'pending'");
+        fields.push("quality_verified = 'pending'");
+        fields.push("status = 'pending'");
       }
     }
 

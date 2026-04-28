@@ -274,7 +274,7 @@ async function createScannedProductsTable() {
 
         validation_status ENUM('pass','fail','pending') DEFAULT 'pending',
         remarks           TEXT,
-
+        admin_remarks     TEXT,
         part_sl_no        VARCHAR(100),
         sl_no             VARCHAR(100),
         scanned_text      TEXT,

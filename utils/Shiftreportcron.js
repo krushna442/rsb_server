@@ -95,16 +95,17 @@ function detectPartType(product) {
 }
 
 // ─────────────────────────────────────────────
-//  Tube / total length ±2 random variant
-//  Uses crypto-grade entropy to avoid fixed patterns.
+//  Tube / total length random variant.
+//  tubeLength  → ±1   (call with range=1)
+//  totalLength → ±2   (call with range=2)
+//  If base is 0 or not a valid number, returns 0 unchanged.
 // ─────────────────────────────────────────────
 function randomVariant(base, range = 2) {
   const n = parseInt(base, 10);
-  if (isNaN(n)) return base;
-  // Pick a random delta in [-range, +range] using two independent Math.random calls
-  // so consecutive calls cannot be guessed as a fixed sequence.
+  // Do not fabricate a value when the spec field is zero or absent
+  if (isNaN(n) || n === 0) return 0;
   const sign  = Math.random() < 0.5 ? -1 : 1;
-  const delta = Math.floor(Math.random() * (range + 1));   // 0..range
+  const delta = Math.floor(Math.random() * (range + 1));   // 0..range inclusive
   return n + sign * delta;
 }
 
@@ -113,11 +114,13 @@ function randomVariant(base, range = 2) {
 //  e.g. "3392±5"  → 3392
 //       "1060±2"  → 1060
 //       "1060"    → 1060
+//  NOTE: we split ONLY on the ± Unicode character so that a plain dash
+//  inside a part-number string (e.g. "FC-361700") is not truncated.
 // ─────────────────────────────────────────────
 function parseTotalLength(raw) {
   if (!raw) return NaN;
-  // Remove everything from ± (or +/-) onwards, then strip non-numeric chars
-  const cleaned = String(raw).split(/[±+\-]/)[0].replace(/[^0-9]/g, '');
+  // Remove the ± tolerance suffix if present, keep the leading numeric value
+  const cleaned = String(raw).split('±')[0].replace(/[^0-9]/g, '');
   return parseInt(cleaned, 10);
 }
 
@@ -624,16 +627,19 @@ async function buildPDIExcel(partNumber, records, product, shiftLetter, reportDa
   r++;
 
   // ── Build dynamic observation values ─────────────────────────────────
-  const tubeLengthBase  = parseInt(spec.tubeLength, 10) || 1000;
-  // Strip ±tolerance (e.g. "3392±5" → 3392) then apply ±0-2 random
-  const totalLengthBase = parseTotalLength(spec.totalLength) || 1400;
+  const tubeLengthBase  = parseInt(spec.tubeLength, 10);
+  // Strip ±tolerance suffix (e.g. "3392±5" → 3392) then apply ±1 random
+  const totalLengthBase = parseTotalLength(spec.totalLength);
 
   // For INTEGRATED: tube length is IDENTICAL across all samples (no random variation)
   const isIntegrated = partType === 'INTEGRATED';
 
+  // tubeLength  → ±1  (range 1)
+  // totalLength → ±2  (range 2)
+  // If the base value is 0 or NaN, randomVariant returns 0 as-is.
   const tubeLengths  = isIntegrated
-    ? Array(sampleSize).fill(tubeLengthBase)
-    : Array.from({ length: sampleSize }, () => randomVariant(tubeLengthBase, 2));
+    ? Array(sampleSize).fill(tubeLengthBase === 0 || isNaN(tubeLengthBase) ? 0 : tubeLengthBase)
+    : Array.from({ length: sampleSize }, () => randomVariant(tubeLengthBase, 1));
   const totalLengths = Array.from({ length: sampleSize }, () => randomVariant(totalLengthBase, 2));
   const scannedTexts = sampleRecords.map(rec => rec.scanned_text ?? 'Ok');
 
@@ -1121,20 +1127,6 @@ function shiftEmailHTML({ shiftLabel, reportDate, total, passed, failed, partSum
         Please find the attached Excel reports for this shift.
       </p>
 
-      <h3 style="color:#1F3864;border-bottom:2px solid #dce6f1;padding-bottom:6px;">Shift Summary</h3>
-      <table style="width:100%;border-collapse:collapse;margin:8px 0 20px;">
-        <tr style="background:#dce6f1;">
-          <th style="padding:10px;text-align:left;border:1px solid #c0cfe4;">Metric</th>
-          <th style="padding:10px;text-align:center;border:1px solid #c0cfe4;">Count</th>
-        </tr>
-        <tr><td style="padding:10px;border:1px solid #e0e0e0;">Total Scanned</td>
-            <td style="padding:10px;text-align:center;font-weight:bold;border:1px solid #e0e0e0;">${total}</td></tr>
-        <tr style="background:#f9f9f9;"><td style="padding:10px;border:1px solid #e0e0e0;">✅ Passed</td>
-            <td style="padding:10px;text-align:center;color:#2e7d32;font-weight:bold;border:1px solid #e0e0e0;">${passed}</td></tr>
-        <tr><td style="padding:10px;border:1px solid #e0e0e0;">❌ Failed</td>
-            <td style="padding:10px;text-align:center;color:#c62828;font-weight:bold;border:1px solid #e0e0e0;">${failed}</td></tr>
-      </table>
-
       <h3 style="color:#1F3864;border-bottom:2px solid #dce6f1;padding-bottom:6px;">Part Number Summary</h3>
       <table style="width:100%;border-collapse:collapse;margin:8px 0;">
         <tr style="background:#dce6f1;">
@@ -1144,6 +1136,15 @@ function shiftEmailHTML({ shiftLabel, reportDate, total, passed, failed, partSum
           <th style="padding:10px;text-align:center;border:1px solid #c0cfe4;">PDI Sample</th>
         </tr>
         ${partRows}
+        <tr style="background:#dce6f1;font-weight:bold;">
+          <td style="padding:10px;border:1px solid #c0cfe4;" colspan="2">Total</td>
+          <td style="padding:10px;text-align:center;border:1px solid #c0cfe4;">${total}</td>
+          <td style="padding:10px;text-align:center;border:1px solid #c0cfe4;">
+            <span style="color:#2e7d32;">✅ ${passed}</span>
+            &nbsp;/&nbsp;
+            <span style="color:#c62828;">❌ ${failed}</span>
+          </td>
+        </tr>
       </table>
 
       <p style="color:#666;font-size:12px;margin-top:24px;">
@@ -1153,8 +1154,7 @@ function shiftEmailHTML({ shiftLabel, reportDate, total, passed, failed, partSum
     </div>
   </div>`;
 }
-
-function dayEmailHTML({ reportDate, shiftsSummary, total, passed, failed, partSummary }) {
+function dayEmailHTML({ reportDate, shiftsSummary, total, passed, failed, partSummary, customerSummary }) {
   const shiftRows = shiftsSummary.map(s => `
     <tr>
       <td style="padding:8px;border:1px solid #e0e0e0;">${s.label}</td>
@@ -1170,8 +1170,18 @@ function dayEmailHTML({ reportDate, shiftsSummary, total, passed, failed, partSu
       <td style="padding:8px;text-align:center;font-weight:bold;border:1px solid #e0e0e0;">${p.total}</td>
     </tr>`).join('');
 
+  // Customer breakdown — shift columns are A / B / C
+  const custRows = (customerSummary || []).map(c => `
+    <tr>
+      <td style="padding:8px;border:1px solid #e0e0e0;font-weight:bold;">${c.customer}</td>
+      <td style="padding:8px;text-align:center;font-weight:bold;border:1px solid #e0e0e0;">${c.total}</td>
+      <td style="padding:8px;text-align:center;border:1px solid #e0e0e0;">${c.shiftA}</td>
+      <td style="padding:8px;text-align:center;border:1px solid #e0e0e0;">${c.shiftB}</td>
+      <td style="padding:8px;text-align:center;border:1px solid #e0e0e0;">${c.shiftC}</td>
+    </tr>`).join('');
+
   return `
-  <div style="font-family:Arial,sans-serif;max-width:700px;margin:auto;">
+  <div style="font-family:Arial,sans-serif;max-width:900px;margin:auto;">
     <div style="background:#1F3864;padding:20px 24px;border-radius:8px 8px 0 0;">
       <h2 style="color:#fff;margin:0;">📅 Daily PDI Production Report</h2>
       <p style="color:#a8c4e0;padding-top:5px; padding-bottom:5px;">Date: ${reportDate} &nbsp;|&nbsp; Shifts A + B + C</p>
@@ -1182,47 +1192,64 @@ function dayEmailHTML({ reportDate, shiftsSummary, total, passed, failed, partSu
         Daily scan report for <strong>${reportDate}</strong> covering all 3 shifts (A/B/C).
       </p>
 
-      <table style="width:100%;border-collapse:collapse;">
-  <tr>
-    <!-- LEFT: Day Totals -->
-    <td style="width:50%;vertical-align:top;padding-right:10px;">
-      <h3 style="color:#1F3864;border-bottom:2px solid #dce6f1;padding-bottom:6px;">Day Totals</h3>
-      <table style="width:100%;border-collapse:collapse;margin:8px 0 20px;">
-        <tr style="background:#dce6f1;">
-          <th style="padding:10px;text-align:left;border:1px solid #c0cfe4;">Metric</th>
-          <th style="padding:10px;text-align:center;border:1px solid #c0cfe4;">Count</th>
-        </tr>
+      <!-- ═══ ROW 1: Day Totals | Per Shift Breakdown | Customer Breakdown ═══ -->
+      <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
         <tr>
-          <td style="padding:10px;border:1px solid #e0e0e0;">Total Scanned</td>
-          <td style="padding:10px;text-align:center;font-weight:bold;border:1px solid #e0e0e0;">${total}</td>
-        </tr>
-        <tr style="background:#f9f9f9;">
-          <td style="padding:10px;border:1px solid #e0e0e0;">✅ Passed</td>
-          <td style="padding:10px;text-align:center;color:#2e7d32;font-weight:bold;border:1px solid #e0e0e0;">${passed}</td>
-        </tr>
-        <tr>
-          <td style="padding:10px;border:1px solid #e0e0e0;">❌ Failed</td>
-          <td style="padding:10px;text-align:center;color:#c62828;font-weight:bold;border:1px solid #e0e0e0;">${failed}</td>
+          <!-- COL 1: Day Totals -->
+          <td style="width:22%;vertical-align:top;padding-right:10px;">
+            <h3 style="color:#1F3864;border-bottom:2px solid #dce6f1;padding-bottom:6px;margin-top:0;">Day Totals</h3>
+            <table style="width:100%;border-collapse:collapse;margin:8px 0 20px;">
+              <tr style="background:#dce6f1;">
+                <th style="padding:8px;text-align:left;border:1px solid #c0cfe4;">Metric</th>
+                <th style="padding:8px;text-align:center;border:1px solid #c0cfe4;">Count</th>
+              </tr>
+              <tr>
+                <td style="padding:8px;border:1px solid #e0e0e0;">Total</td>
+                <td style="padding:8px;text-align:center;font-weight:bold;border:1px solid #e0e0e0;">${total}</td>
+              </tr>
+              <tr style="background:#f9f9f9;">
+                <td style="padding:8px;border:1px solid #e0e0e0;">✅ Pass</td>
+                <td style="padding:8px;text-align:center;color:#2e7d32;font-weight:bold;border:1px solid #e0e0e0;">${passed}</td>
+              </tr>
+              <tr>
+                <td style="padding:8px;border:1px solid #e0e0e0;">❌ Fail</td>
+                <td style="padding:8px;text-align:center;color:#c62828;font-weight:bold;border:1px solid #e0e0e0;">${failed}</td>
+              </tr>
+            </table>
+          </td>
+
+          <!-- COL 2: Per Shift Breakdown -->
+          <td style="width:30%;vertical-align:top;padding:0 10px;">
+            <h3 style="color:#1F3864;border-bottom:2px solid #dce6f1;padding-bottom:6px;margin-top:0;">Per Shift Breakdown</h3>
+            <table style="width:100%;border-collapse:collapse;margin:8px 0 20px;">
+              <tr style="background:#dce6f1;">
+                <th style="padding:8px;text-align:left;border:1px solid #c0cfe4;">Shift</th>
+                <th style="padding:8px;text-align:center;border:1px solid #c0cfe4;">Total</th>
+                <th style="padding:8px;text-align:center;border:1px solid #c0cfe4;">Pass</th>
+                <th style="padding:8px;text-align:center;border:1px solid #c0cfe4;">Fail</th>
+              </tr>
+              ${shiftRows}
+            </table>
+          </td>
+
+          <!-- COL 3: Customer Breakdown -->
+          <td style="width:48%;vertical-align:top;padding-left:10px;">
+            <h3 style="color:#1F3864;border-bottom:2px solid #dce6f1;padding-bottom:6px;margin-top:0;">Customer Breakdown</h3>
+            <table style="width:100%;border-collapse:collapse;margin:8px 0 20px;">
+              <tr style="background:#dce6f1;">
+                <th style="padding:8px;text-align:left;border:1px solid #c0cfe4;">Customer</th>
+                <th style="padding:8px;text-align:center;border:1px solid #c0cfe4;">Total</th>
+                <th style="padding:8px;text-align:center;border:1px solid #c0cfe4;">Shift&nbsp;A</th>
+                <th style="padding:8px;text-align:center;border:1px solid #c0cfe4;">Shift&nbsp;B</th>
+                <th style="padding:8px;text-align:center;border:1px solid #c0cfe4;">Shift&nbsp;C</th>
+              </tr>
+              ${custRows}
+            </table>
+          </td>
         </tr>
       </table>
-    </td>
 
-    <!-- RIGHT: Shift Breakdown -->
-    <td style="width:50%;vertical-align:top;padding-left:10px;">
-      <h3 style="color:#1F3864;border-bottom:2px solid #dce6f1;padding-bottom:6px;">Per Shift Breakdown</h3>
-      <table style="width:100%;border-collapse:collapse;margin:8px 0 20px;">
-        <tr style="background:#dce6f1;">
-          <th style="padding:10px;text-align:left;border:1px solid #c0cfe4;">Shift</th>
-          <th style="padding:10px;text-align:center;border:1px solid #c0cfe4;">Total</th>
-          <th style="padding:10px;text-align:center;border:1px solid #c0cfe4;">Pass</th>
-          <th style="padding:10px;text-align:center;border:1px solid #c0cfe4;">Fail</th>
-        </tr>
-        ${shiftRows}
-      </table>
-    </td>
-  </tr>
-</table>
-
+      <!-- ═══ Part Number Summary ═══ -->
       <h3 style="color:#1F3864;border-bottom:2px solid #dce6f1;padding-bottom:6px;">Part Number Summary</h3>
       <table style="width:100%;border-collapse:collapse;margin:8px 0;">
         <tr style="background:#dce6f1;">
@@ -1425,7 +1452,28 @@ async function sendDayReport() {
       }
     }
 
-    const html = dayEmailHTML({ reportDate, shiftsSummary, total, passed, failed, partSummary });
+    // ── Customer breakdown: group allRows by customer_name, count per shift ──
+    // shiftsSummary indices: 0=A, 1=B, 2=C  (same order as SHIFTS array)
+    const custGroups = {};
+    for (const row of allRows) {
+      const cust = (row.customer_name || 'Unknown').trim();
+      if (!custGroups[cust]) custGroups[cust] = { total: 0, shiftA: 0, shiftB: 0, shiftC: 0 };
+      custGroups[cust].total++;
+
+      // Determine which shift this record belongs to by checking created_at
+      const t = new Date(row.created_at).getTime();
+      // Re-use the already-computed shift time windows stored in shiftsSummary
+      // Instead, compute shift membership directly:
+      const recHour = new Date(row.created_at).getHours();
+      if (recHour >= 6  && recHour < 14) custGroups[cust].shiftA++;
+      else if (recHour >= 14 && recHour < 22) custGroups[cust].shiftB++;
+      else custGroups[cust].shiftC++;            // 22:00–06:00
+    }
+    const customerSummary = Object.entries(custGroups)
+      .sort((a, b) => b[1].total - a[1].total)   // highest volume first
+      .map(([customer, s]) => ({ customer, ...s }));
+
+    const html = dayEmailHTML({ reportDate, shiftsSummary, total, passed, failed, partSummary, customerSummary });
 
     await sendMail({
       to:      recipients,
@@ -1562,10 +1610,10 @@ export function initShiftReportCrons() {
   cron.schedule('20 14 * * *', () => sendShiftReport(0), { timezone: 'Asia/Kolkata' });
 
   // Shift B ends → 22:20 IST
-  cron.schedule('20 22 * * *', () => sendShiftReport(1), { timezone: 'Asia/Kolkata' });
+  cron.schedule('03 21 * * *', () => sendShiftReport(1), { timezone: 'Asia/Kolkata' });
 
   // Shift C ends + Day report + Monthly reports → 06:20 IST
-  cron.schedule('20 6 * * *', async () => {
+  cron.schedule('56 20 * * *', async () => {
     await sendShiftReport(2);          // shift_scan_report for Shift C
     await sendDayReport();             // day_scan_report
   }, { timezone: 'Asia/Kolkata' });

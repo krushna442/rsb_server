@@ -3,16 +3,22 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
+// const transporter = nodemailer.createTransport({
+//       host: "mapi.mailngx.com",
+//       port: 587, // try 587 first
+//       secure: false, // true if using 465
+//   auth: {
+//     user: process.env.MAIL_USER,
+//     pass: process.env.MAIL_PASSWORD,
+//   },
+// });
 const transporter = nodemailer.createTransport({
-      host: "mapi.mailngx.com",
-      port: 587, // try 587 first
-      secure: false, // true if using 465
+  service: "gmail",
   auth: {
-    user: process.env.MAIL_USER,
-    pass: process.env.MAIL_PASSWORD,
+    user: process.env.MAIL_USER,     // your Gmail address
+    pass: process.env.MAIL_PASSWORD, // app password (NOT your normal password)
   },
 });
-
 export const sendMail = async ({ to, subject, html, attachments = []}) => {
   try {
     // If no recipients, return early

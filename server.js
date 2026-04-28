@@ -64,7 +64,7 @@ async function startServer() {
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  // initShiftReportCrons(); // ✅ moved here
+  initShiftReportCrons(); // ✅ moved here
 });
   } catch (err) {
     console.error("Startup error:", err);

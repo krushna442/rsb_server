@@ -578,11 +578,11 @@ export const createScan = async (scanData, masterProduct, created_by = null) => 
 
 // ─── UPDATE ───────────────────────────────────────────────────────────────────
 
-export const updateScanRemarks = async (id, remarks, modified_by = null) => {
+export const updateScanRemarks = async (id, admin_remarks, modified_by = null) => {
   try {
     await execute(
-      'UPDATE scanned_products SET remarks = ?, modified_by = ?, is_remarks_edited = 1, updated_at = NOW() WHERE id = ?',
-      [remarks, modified_by, id]
+      'UPDATE scanned_products SET admin_remarks = ?,is_remarks_edited = 1, modified_by = ?, updated_at = NOW() WHERE id = ?',
+      [admin_remarks, modified_by, id]
     );
     return findScanById(id);
   } catch (error) {

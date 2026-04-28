@@ -136,7 +136,7 @@ export const patchRemarks = async (req, res) => {
   try {
     const data = await updateScanRemarks(
       req.params.id,
-      req.body.remarks,
+      req.body.admin_remarks,
       req.user?.name ?? null
     );
     res.json({ success: true, data });
