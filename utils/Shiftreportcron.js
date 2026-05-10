@@ -68,6 +68,14 @@ const SHIFTS = [
   { label: 'Shift C  (22:00 – 06:00)', shiftLetter: 'C', startHour: 22, endHour: 6  },
 ];
 
+function getShiftFromDate(date) {
+  if (!date) return '';
+  const hours = date.getHours();
+  if (hours >= 6 && hours < 14) return 'A';
+  if (hours >= 14 && hours < 22) return 'B';
+  return 'C';
+}
+
 // ─────────────────────────────────────────────
 //  Helpers: recipients filtered by mail_type
 // ─────────────────────────────────────────────
@@ -90,7 +98,10 @@ function detectPartType(product) {
   if (!product?.specification) return 'FRONT';
   const t = (product.specification.partType || '').toUpperCase();
   if (t === 'REAR')   return 'REAR';
-  if (t === 'MIDDLE') return 'MIDDLE';
+  if (t === 'MIDDLE') return 'FRONT';
+  if (t === 'I/A')    return 'REAR';
+  if (t=== 'DUMB')   return 'REAR';
+  if (t === 'INTEGRATED') return 'INTEGRATED'
   return 'FRONT';
 }
 
@@ -204,7 +215,19 @@ const centerAlign = (wrap = true)  => ({ horizontal: 'center', vertical: 'middle
 const leftAlign   = (wrap = false) => ({ horizontal: 'left',   vertical: 'middle', wrapText: wrap });
 
 function applyBorder(cell, b) {
+  if (!cell) return;
   cell.border = { top: b, bottom: b, left: b, right: b };
+}
+
+/**
+ * Apply border to all cells in a range (useful for merged cells to ensure full grid)
+ */
+function applyGridBorder(sheet, r1, c1, r2, c2, b) {
+  for (let row = r1; row <= r2; row++) {
+    for (let col = c1; col <= c2; col++) {
+      applyBorder(sheet.getCell(row, col), b);
+    }
+  }
 }
 
 function styleHeaderCell(cell, text) {
@@ -257,7 +280,7 @@ async function buildScanExcel(rows, titleLabel, reportDate, filename) {
   titleCell.font      = { bold: true, size: 13, color: { argb: WHITE }, name: 'Arial' };
   titleCell.alignment = centerAlign();
   titleCell.fill      = navyFill();
-  applyBorder(titleCell, BORDER_DARK);
+  applyGridBorder(sheet, 1, 1, 1, COLS, BORDER_DARK);
   sheet.getRow(1).height = 28;
 
   // ── Row 2: Stats bar ──────────────────────────────────────────────────
@@ -276,7 +299,7 @@ async function buildScanExcel(rows, titleLabel, reportDate, filename) {
   compCell.font      = { bold: true, size: 11, color: { argb: WHITE }, name: 'Arial' };
   compCell.alignment = centerAlign();
   compCell.fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2E4A7A' } };
-  applyBorder(compCell, BORDER_DARK);
+  applyGridBorder(sheet, 3, 1, 3, COLS, BORDER_DARK);
   sheet.getRow(3).height = 20;
 
   // ── Row 4: Column headers ─────────────────────────────────────────────
@@ -306,7 +329,7 @@ async function buildScanExcel(rows, titleLabel, reportDate, filename) {
   rows.forEach((r, idx) => {
     const excelRow = sheet.addRow({
       sr_no:          r.sl_no ?? idx + 1,
-      shift:          r.shift ?? '',
+      shift:          getShiftFromDate(new Date(r.created_at)),
       created_on:     r.created_at ? new Date(r.created_at).toLocaleString('en-IN') : '',
       customer_name:  r.customer_name ?? '',
       vendor_code:    r.vendorCode ?? '',
@@ -350,6 +373,7 @@ function writePDIRow(sheet, rowNum, srNo, characteristic, specification, mode, o
   const row = sheet.getRow(rowNum);
   row.height = 20;
 
+  // SR NO
   const c0 = row.getCell(1);
   c0.value     = srNo;
   c0.fill      = greyFill();
@@ -357,14 +381,16 @@ function writePDIRow(sheet, rowNum, srNo, characteristic, specification, mode, o
   c0.alignment = centerAlign();
   applyBorder(c0, BORDER_DARK);
 
+  // Characteristics
   sheet.mergeCells(rowNum, 2, rowNum, 3);
   const c1 = row.getCell(2);
   c1.value     = characteristic;
   c1.fill      = whiteFill();
   c1.font      = { size: 9, name: 'Arial' };
   c1.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
-  applyBorder(c1, BORDER_LIGHT);
+  applyGridBorder(sheet, rowNum, 2, rowNum, 3, BORDER_LIGHT);
 
+  // Specification
   const c2 = row.getCell(4);
   c2.value     = specification;
   c2.fill      = lightFill();
@@ -372,6 +398,7 @@ function writePDIRow(sheet, rowNum, srNo, characteristic, specification, mode, o
   c2.alignment = centerAlign(true);
   applyBorder(c2, BORDER_LIGHT);
 
+  // Mode
   const c3 = row.getCell(5);
   c3.value     = mode;
   c3.fill      = greyFill();
@@ -379,15 +406,17 @@ function writePDIRow(sheet, rowNum, srNo, characteristic, specification, mode, o
   c3.alignment = centerAlign(true);
   applyBorder(c3, BORDER_LIGHT);
 
-  observations.forEach((obs, i) => {
+  // Observations 1-5
+  for (let i = 0; i < 5; i++) {
     const cell = row.getCell(6 + i);
-    cell.value     = obs ?? '';
+    cell.value     = observations[i] ?? '';
     cell.fill      = whiteFill();
     cell.font      = { size: 9, name: 'Arial' };
     cell.alignment = centerAlign(true);
     applyBorder(cell, BORDER_LIGHT);
-  });
+  }
 
+  // Status
   const cStatus = row.getCell(11);
   cStatus.value     = productStatus || 'All Shaft Found of ok';
   cStatus.fill      = greenFill();
@@ -395,6 +424,7 @@ function writePDIRow(sheet, rowNum, srNo, characteristic, specification, mode, o
   cStatus.alignment = centerAlign(true);
   applyBorder(cStatus, BORDER_LIGHT);
 
+  // Remark
   const cRemark = row.getCell(12);
   cRemark.value     = remark || '';
   cRemark.fill      = whiteFill();
@@ -480,7 +510,7 @@ async function buildPDIExcel(partNumber, records, product, shiftLetter, reportDa
   tc.font      = { bold: true, size: 13, name: 'Arial', color: { argb: WHITE } };
   tc.alignment = centerAlign();
   tc.fill      = navyFill();
-  applyBorder(tc, BORDER_DARK);
+  applyGridBorder(sheet, r, 1, r, 12, BORDER_DARK);
   sheet.getRow(r).height = 26;
   r++;
 
@@ -491,7 +521,7 @@ async function buildPDIExcel(partNumber, records, product, shiftLetter, reportDa
   cc.font      = { bold: true, size: 11, name: 'Arial', color: { argb: WHITE } };
   cc.alignment = centerAlign();
   cc.fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2E4A7A' } };
-  applyBorder(cc, BORDER_DARK);
+  applyGridBorder(sheet, r, 1, r, 12, BORDER_DARK);
   sheet.getRow(r).height = 22;
   r++;
 
@@ -499,13 +529,15 @@ async function buildPDIExcel(partNumber, records, product, shiftLetter, reportDa
   sheet.mergeCells(r, 1, r, 3);
   const dl = sheet.getCell(r, 1);
   dl.value = 'DESCRIPTION-'; dl.font = { bold: true, size: 9, name: 'Arial' };
-  dl.alignment = leftAlign(); dl.fill = lightFill(); applyBorder(dl, BORDER_DARK);
+  dl.alignment = leftAlign(); dl.fill = lightFill();
+  applyGridBorder(sheet, r, 1, r, 3, BORDER_DARK);
 
   sheet.mergeCells(r, 4, r, 5);
   const dv = sheet.getCell(r, 4);
   dv.value = spec.partDescription || `ASSY PROP SHAFT ${partNumber}`;
   dv.font = { bold: true, size: 9, name: 'Arial' }; dv.alignment = leftAlign();
-  dv.fill = whiteFill(); applyBorder(dv, BORDER_DARK);
+  dv.fill = whiteFill();
+  applyGridBorder(sheet, r, 4, r, 5, BORDER_DARK);
 
   const sl = sheet.getCell(r, 6);
   sl.value = 'Shift'; sl.font = { bold: true, size: 9, name: 'Arial' };
@@ -516,6 +548,7 @@ async function buildPDIExcel(partNumber, records, product, shiftLetter, reportDa
   sv.alignment = centerAlign(); sv.fill = yellowFill(); applyBorder(sv, BORDER_DARK);
 
   sheet.mergeCells(r, 8, r, 9);
+  applyGridBorder(sheet, r, 8, r, 9, BORDER_DARK);
 
   const pl = sheet.getCell(r, 10);
   pl.value = 'Part No:-'; pl.font = { bold: true, size: 9, name: 'Arial' };
@@ -524,7 +557,8 @@ async function buildPDIExcel(partNumber, records, product, shiftLetter, reportDa
   sheet.mergeCells(r, 11, r, 12);
   const pv = sheet.getCell(r, 11);
   pv.value = partNumber; pv.font = { bold: true, size: 10, name: 'Arial', color: { argb: NAVY } };
-  pv.alignment = centerAlign(); pv.fill = yellowFill(); applyBorder(pv, BORDER_DARK);
+  pv.alignment = centerAlign(); pv.fill = yellowFill();
+  applyGridBorder(sheet, r, 11, r, 12, BORDER_DARK);
   sheet.getRow(r).height = 20;
   r++;
 
@@ -532,10 +566,11 @@ async function buildPDIExcel(partNumber, records, product, shiftLetter, reportDa
   sheet.mergeCells(r, 1, r, 3);
   const drgL = sheet.getCell(r, 1);
   drgL.value = 'Drg. No-'; drgL.font = { bold: true, size: 9, name: 'Arial' };
-  drgL.alignment = leftAlign(); drgL.fill = lightFill(); applyBorder(drgL, BORDER_DARK);
+  drgL.alignment = leftAlign(); drgL.fill = lightFill();
+  applyGridBorder(sheet, r, 1, r, 3, BORDER_DARK);
 
   sheet.mergeCells(r, 4, r, 5);
-  applyBorder(sheet.getCell(r, 4), BORDER_LIGHT);
+  applyGridBorder(sheet, r, 4, r, 5, BORDER_LIGHT);
 
   const modeL = sheet.getCell(r, 6);
   modeL.value = 'Mode No-'; modeL.font = { bold: true, size: 9, name: 'Arial' };
@@ -546,13 +581,14 @@ async function buildPDIExcel(partNumber, records, product, shiftLetter, reportDa
   modeV.alignment = centerAlign(); modeV.fill = whiteFill(); applyBorder(modeV, BORDER_DARK);
 
   sheet.mergeCells(r, 8, r, 9);
+  applyGridBorder(sheet, r, 8, r, 9, BORDER_DARK);
 
   const invL = sheet.getCell(r, 10);
   invL.value = 'Invoice No.'; invL.font = { bold: true, size: 9, name: 'Arial' };
   invL.alignment = leftAlign(); invL.fill = lightFill(); applyBorder(invL, BORDER_DARK);
 
   sheet.mergeCells(r, 11, r, 12);
-  applyBorder(sheet.getCell(r, 11), BORDER_LIGHT);
+  applyGridBorder(sheet, r, 11, r, 12, BORDER_LIGHT);
   sheet.getRow(r).height = 18;
   r++;
 
@@ -560,9 +596,11 @@ async function buildPDIExcel(partNumber, records, product, shiftLetter, reportDa
   sheet.mergeCells(r, 1, r, 3);
   const reg = sheet.getCell(r, 1);
   reg.value = 'Regular-    Sample-'; reg.font = { size: 9, name: 'Arial' };
-  reg.alignment = leftAlign(); reg.fill = whiteFill(); applyBorder(reg, BORDER_LIGHT);
+  reg.alignment = leftAlign(); reg.fill = whiteFill();
+  applyGridBorder(sheet, r, 1, r, 3, BORDER_LIGHT);
 
-  applyBorder(sheet.getCell(r, 4), BORDER_LIGHT);
+  const emptyCellRow5Col4 = sheet.getCell(r, 4);
+  applyBorder(emptyCellRow5Col4, BORDER_LIGHT);
 
   const qtyL = sheet.getCell(r, 5);
   qtyL.value = 'QTY:-'; qtyL.font = { bold: true, size: 9, name: 'Arial' };
@@ -579,7 +617,8 @@ async function buildPDIExcel(partNumber, records, product, shiftLetter, reportDa
   sheet.mergeCells(r, 8, r, 9);
   const sampV = sheet.getCell(r, 9);
   sampV.value = sampleSize; sampV.font = { bold: true, size: 10, name: 'Arial' };
-  sampV.alignment = centerAlign(); sampV.fill = yellowFill(); applyBorder(sampV, BORDER_DARK);
+  sampV.alignment = centerAlign(); sampV.fill = yellowFill();
+  applyGridBorder(sheet, r, 8, r, 9, BORDER_DARK);
 
   const supL = sheet.getCell(r, 10);
   supL.value = 'Supply Date'; supL.font = { bold: true, size: 9, name: 'Arial' };
@@ -589,7 +628,8 @@ async function buildPDIExcel(partNumber, records, product, shiftLetter, reportDa
   const supV = sheet.getCell(r, 11);
   supV.value = reportDate.split('-').reverse().join('/');
   supV.font = { size: 9, name: 'Arial' }; supV.alignment = centerAlign();
-  supV.fill = whiteFill(); applyBorder(supV, BORDER_DARK);
+  supV.fill = whiteFill();
+  applyGridBorder(sheet, r, 11, r, 12, BORDER_DARK);
   sheet.getRow(r).height = 18;
   r++;
 
@@ -598,10 +638,12 @@ async function buildPDIExcel(partNumber, records, product, shiftLetter, reportDa
   hRow.height = 22;
   styleHeaderCell(hRow.getCell(1), 'SR NO.');
   sheet.mergeCells(r, 2, r, 3);
+  applyGridBorder(sheet, r, 2, r, 3, BORDER_DARK);
   styleHeaderCell(hRow.getCell(2), 'Characteristics');
   styleHeaderCell(hRow.getCell(4), 'Specification');
   styleHeaderCell(hRow.getCell(5), 'Mode Of Checking');
   sheet.mergeCells(r, 6, r, 10);
+  applyGridBorder(sheet, r, 6, r, 10, BORDER_DARK);
   styleHeaderCell(hRow.getCell(6), 'Actual Observations');
   styleHeaderCell(hRow.getCell(11), 'Product Status');
   styleHeaderCell(hRow.getCell(12), 'Remark');
@@ -611,6 +653,8 @@ async function buildPDIExcel(partNumber, records, product, shiftLetter, reportDa
   const obsRow = sheet.getRow(r);
   obsRow.height = 18;
   sheet.mergeCells(r, 2, r, 3);
+  applyGridBorder(sheet, r, 2, r, 3, BORDER_LIGHT);
+
   [1, 2, 3, 4, 5].forEach((n, i) => {
     const cell = obsRow.getCell(6 + i);
     cell.value     = n;
@@ -619,7 +663,8 @@ async function buildPDIExcel(partNumber, records, product, shiftLetter, reportDa
     cell.fill      = lightFill();
     applyBorder(cell, BORDER_DARK);
   });
-  [1, 2, 3, 4, 5, 11, 12].forEach(c => {
+  // Border SR NO, Spec, Mode, Status, Remark in Row 7 (the parts under headers)
+  [1, 4, 5, 11, 12].forEach(c => {
     const cell = obsRow.getCell(c);
     cell.fill = greyFill();
     applyBorder(cell, BORDER_LIGHT);
@@ -913,14 +958,16 @@ async function buildPDIExcel(partNumber, records, product, shiftLetter, reportDa
   sheet.mergeCells(r, 1, r, 12);
   const remCell = sheet.getCell(r, 1);
   remCell.value = 'Remarks :- (IF ANY)'; remCell.font = { bold: true, size: 10, name: 'Arial' };
-  remCell.alignment = leftAlign(); remCell.fill = lightFill(); applyBorder(remCell, BORDER_DARK);
+  remCell.alignment = leftAlign(); remCell.fill = lightFill();
+  applyGridBorder(sheet, r, 1, r, 12, BORDER_DARK);
   sheet.getRow(r).height = 20; r++;
 
   sheet.mergeCells(r, 1, r, 3);
   const chkCell = sheet.getCell(r, 1);
   chkCell.value = `CHECKED BY (SIGNATURE):-  ${checkedByName.toUpperCase()}`;
   chkCell.font = { bold: true, size: 9, name: 'Arial' }; chkCell.alignment = leftAlign();
-  chkCell.fill = lightFill(); applyBorder(chkCell, BORDER_DARK);
+  chkCell.fill = lightFill();
+  applyGridBorder(sheet, r, 1, r, 3, BORDER_DARK);
 
   const dateL = sheet.getCell(r, 4);
   dateL.value = 'Date'; dateL.font = { bold: true, size: 9, name: 'Arial' };
@@ -932,19 +979,21 @@ async function buildPDIExcel(partNumber, records, product, shiftLetter, reportDa
   dateV.fill = whiteFill(); applyBorder(dateV, BORDER_DARK);
 
   sheet.mergeCells(r, 6, r, 9);
+  applyGridBorder(sheet, r, 6, r, 9, BORDER_DARK);
 
   sheet.mergeCells(r, 10, r, 12);
   const passCell = sheet.getCell(r, 10);
   passCell.value = 'PASSED DISPATCH (SIGNATURE):  SUDHIR';
   passCell.font = { bold: true, size: 9, name: 'Arial' }; passCell.alignment = leftAlign();
-  passCell.fill = greenFill(); applyBorder(passCell, BORDER_DARK);
+  passCell.fill = greenFill();
+  applyGridBorder(sheet, r, 10, r, 12, BORDER_DARK);
   sheet.getRow(r).height = 22; r++;
 
   sheet.mergeCells(r, 1, r, 12);
   const formRow = sheet.getCell(r, 1);
   formRow.value = 'FORM NO :'; formRow.font = { size: 9, name: 'Arial' };
   formRow.alignment = leftAlign(); formRow.fill = greyFill();
-  applyBorder(formRow, BORDER_LIGHT); sheet.getRow(r).height = 16;
+  applyGridBorder(sheet, r, 1, r, 12, BORDER_LIGHT); sheet.getRow(r).height = 16;
 
   // No frozen panes — header is NOT sticky per requirement
   // sheet.views intentionally omitted
@@ -973,7 +1022,7 @@ async function buildMonthlyProductsExcel(products, monthLabel, filename) {
   tc.font      = { bold: true, size: 13, color: { argb: WHITE }, name: 'Arial' };
   tc.alignment = centerAlign();
   tc.fill      = navyFill();
-  applyBorder(tc, BORDER_DARK);
+  applyGridBorder(sheet, 1, 1, 1, COLS, BORDER_DARK);
   sheet.getRow(1).height = 28;
 
   sheet.mergeCells(2, 1, 2, COLS);
@@ -1354,7 +1403,8 @@ async function sendShiftReport(shiftIndex) {
       console.warn('[ShiftReport] No recipients for shift_scan_report'); return;
     }
 
-    const rows = await fetchRecords(from, to);
+    const rawRows = await fetchRecords(from, to);
+    const rows = rawRows.filter(r => !isScanTextF1(r.scanned_text) && !isScanTextF5(r.scanned_text));
     console.log(`[ShiftReport] Records: ${rows.length}`);
 
     const { attachments, partSummary, total, passed, failed } =
@@ -1399,7 +1449,8 @@ async function sendDayReport() {
     }
 
     // Fetch all records for the full day
-    const allRows = await fetchRecords(dayStart, dayEnd);
+    const rawRows = await fetchRecords(dayStart, dayEnd);
+    const allRows = rawRows.filter(r => !isScanTextF1(r.scanned_text) && !isScanTextF5(r.scanned_text));
 
     // Build one combined scan excel for the full day
     const dayFilename = `Daily_Scan_Report_${reportDate}.xlsx`;
@@ -1605,28 +1656,141 @@ async function sendMonthlyProductReport() {
 //  monthly_scan_report    — 1st of month at 06:20
 //  monthly_product_report — 1st of month at 06:20
 // ─────────────────────────────────────────────
+// ─────────────────────────────────────────────
+//  Hourly Production Report (Daily at 6 AM for previous day)
+// ─────────────────────────────────────────────
+async function sendHourlyProductionReport() {
+  const now = new Date();
+  // Since it runs at 6am, the "production day" is yesterday
+  const prodDateObj = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const reportDate = prodDateObj.toISOString().slice(0, 10);
+
+  console.log(`[HourlyProductionReport] Starting for date: ${reportDate}`);
+
+  try {
+    const recipients = await getRecipients('day_scan_report');
+    if (!recipients.length) {
+      console.warn('[HourlyProductionReport] No recipients found for day_scan_report');
+      return;
+    }
+
+    const rows = await query(
+      `SELECT * FROM hourly_production WHERE production_date = ? ORDER BY hour_slot ASC, part_type ASC`,
+      [reportDate]
+    );
+
+    if (!rows.length) {
+      console.warn('[HourlyProductionReport] No records found for date:', reportDate);
+      return;
+    }
+
+    const formatHour = (h) => {
+      const ampm = h % 24 < 12 ? 'AM' : 'PM';
+      let hour = h % 12;
+      if (hour === 0) hour = 12;
+      return `${hour}:00 ${ampm}`;
+    };
+
+    let tableHTML = `
+      <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; font-family: sans-serif; width: 100%; max-width: 800px;">
+        <thead style="background-color: #f1f5f9;">
+          <tr>
+            <th>Time</th>
+            <th>Part Type</th>
+            <th>Tube Length</th>
+            <th>Quantity</th>
+            <th>Remarks</th>
+          </tr>
+        </thead>
+        <tbody>
+    `;
+
+    let totalQty = 0;
+    rows.forEach(r => {
+      totalQty += (Number(r.quantity) || 0);
+      tableHTML += `
+        <tr>
+          <td>${formatHour(r.hour_slot)} - ${formatHour(r.hour_slot + 1)}</td>
+          <td style="text-transform: capitalize;">${r.part_type}</td>
+          <td>${r.tube_length || ''}</td>
+          <td>${r.quantity}</td>
+          <td>${r.remarks || ''}</td>
+        </tr>
+      `;
+    });
+
+    tableHTML += `
+        </tbody>
+        <tfoot style="background-color: #f8fafc; font-weight: bold;">
+          <tr>
+            <td colspan="3" style="text-align: right;">Total Quantity:</td>
+            <td colspan="2">${totalQty}</td>
+          </tr>
+        </tfoot>
+      </table>
+    `;
+
+    const html = `
+      <div style="font-family: sans-serif; color: #333;">
+        <h2>Hourly Production Report</h2>
+        <p><strong>Production Date:</strong> ${prodDateObj.toLocaleDateString('en-IN')}</p>
+        <p>Please find the production records for the day below:</p>
+        ${tableHTML}
+        <br/>
+        <p>Best regards,<br/>RSB Dashboard System</p>
+      </div>
+    `;
+
+    await sendMail({
+      to: recipients,
+      subject: `[Hourly Production Report] ${prodDateObj.toLocaleDateString('en-IN')}`,
+      html
+    });
+
+    console.log(`[HourlyProductionReport] Sent to: ${recipients.join(', ')}`);
+  } catch (err) {
+    console.error('[HourlyProductionReport] Error:', err);
+  }
+}
+
+// ─────────────────────────────────────────────
+//  Init all cron jobs (IST timezone)
+//
+//  shift_scan_report  — 3 jobs, one per shift end
+//    Shift A (06–14) → 14:20
+//    Shift B (14–22) → 22:20
+//    Shift C (22–06) → 06:20
+//
+//  day_scan_report    — daily at 06:20
+//    (previous day 06:00 → today 06:00)
+//    NOTE: runs same time as shift C report; order: shift C fires, then day report
+//
+//  monthly_scan_report    — 1st of month at 06:20
+//  monthly_product_report — 1st of month at 06:20
+// ─────────────────────────────────────────────
 export function initShiftReportCrons() {
-  // Shift A ends → 14:20 IST
-  cron.schedule('20 14 * * *', () => sendShiftReport(0), { timezone: 'Asia/Kolkata' });
+  // Shift A ends → 14:05 IST
+  cron.schedule('26 15 * * *', () => sendShiftReport(0), { timezone: 'Asia/Kolkata' });
 
-  // Shift B ends → 22:20 IST
-  cron.schedule('03 21 * * *', () => sendShiftReport(1), { timezone: 'Asia/Kolkata' });
+  // Shift B ends → 22:05 IST
+  cron.schedule('05 22 * * *', () => sendShiftReport(1), { timezone: 'Asia/Kolkata' });
 
-  // Shift C ends + Day report + Monthly reports → 06:20 IST
-  cron.schedule('56 20 * * *', async () => {
+  // Shift C ends + Day report + Monthly reports + Hourly Production Report → 06:05 IST
+  cron.schedule('05 6 * * *', async () => {
     await sendShiftReport(2);          // shift_scan_report for Shift C
     await sendDayReport();             // day_scan_report
+    await sendHourlyProductionReport(); // hourly production records
   }, { timezone: 'Asia/Kolkata' });
 
-  // Monthly reports fire on 1st of every month at 06:20 IST
-  cron.schedule('20 6 1 * *', async () => {
+  // Monthly reports fire on 1st of every month at 06:05 IST
+  cron.schedule('05 6 1 * *', async () => {
     await sendMonthlyScanReport();
     await sendMonthlyProductReport();
   }, { timezone: 'Asia/Kolkata' });
 
   console.log('[ShiftReport] ✅ Cron jobs scheduled (IST):');
-  console.log('  → Shift A report : 14:20 daily');
-  console.log('  → Shift B report : 22:20 daily');
-  console.log('  → Shift C report + Day report : 06:20 daily');
-  console.log('  → Monthly scan + product reports : 06:20 on 1st of each month');
+  console.log('  → Shift A report : 14:26 daily');
+  console.log('  → Shift B report : 22:05 daily');
+  console.log('  → Shift C report + Day report + Hourly Prod : 06:05 daily');
+  console.log('  → Monthly scan + product reports : 06:05 on 1st of each month');
 }

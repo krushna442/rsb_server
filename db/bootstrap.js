@@ -88,6 +88,9 @@ async function createDynamicFieldsTable() {
         quality_verification_fields JSON NOT NULL DEFAULT ('[]'),
         important_fields            JSON NOT NULL DEFAULT ('[]'),
         documents                   JSON NOT NULL DEFAULT ('[]'),
+        customer_names              JSON NOT NULL DEFAULT ('[]'),
+        standard_names              JSON NOT NULL DEFAULT ('[]'),
+        control_plan_names          JSON NOT NULL DEFAULT ('[]'),
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
@@ -97,8 +100,8 @@ async function createDynamicFieldsTable() {
     if (!existing.length) {
       await query(
         `INSERT INTO dynamic_fields
-          (product_fields, approval_fields, quality_verification_fields, important_fields, documents)
-         VALUES (?, ?, ?, ?, ?)`,
+          (product_fields, approval_fields, quality_verification_fields, important_fields, documents,customer_names,standard_names,control_plan_names)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           // ── product_fields (unchanged) ──────────────────────────────────────
           JSON.stringify([
@@ -207,6 +210,24 @@ async function createDynamicFieldsTable() {
             { name: 'IQA',               category: 'ppap' },
             { name: 'WELDING REPORT',    category: 'ppap' },
           ]),
+          JSON.stringify([
+            "ALL ALW",
+            "ALL PNR",
+            "TML"
+          ]),
+          JSON.stringify([
+            "SS/TS",
+            "ISO",
+            "DIN",
+            "MANUAL"
+          ]),
+          JSON.stringify([
+            "FRONT LINE",
+            "REAR LINE",
+            "COMMON LINE",
+            "SOP / Quality Alert"
+          ]),
+
         ]
       );
       console.log('✅ dynamic_fields seeded with default config');
@@ -383,6 +404,277 @@ async function createPDIReportTable() {
   }
 }
 
+// ─── drawings ─────────────────────────────────────────────────────────────────
+
+async function createDrawingsTable() {
+  try {
+    await query(`
+      CREATE TABLE IF NOT EXISTS drawings (
+        id                INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        drawing_number    VARCHAR(100) NOT NULL,
+        shaft             VARCHAR(255),
+        joint             VARCHAR(100),
+        part_number       TEXT,
+        customer          VARCHAR(255),
+        modification_number VARCHAR(100),
+        modification_date DATE,
+        bom               VARCHAR(255),
+        file_path         VARCHAR(500),
+        version           INT UNSIGNED DEFAULT 1,
+        parent_id         INT UNSIGNED NULL,
+        is_latest         TINYINT(1) DEFAULT 1,
+        created_by        VARCHAR(100),
+        updated_by        VARCHAR(100),
+        created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_drawing_number (drawing_number),
+        INDEX idx_customer       (customer),
+        INDEX idx_is_latest      (is_latest),
+        INDEX idx_parent_id      (parent_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+    console.log('✅ drawings table created/verified');
+  } catch (error) {
+    console.error('❌ Error creating drawings table:', error.message);
+    throw error;
+  }
+}
+
+// ─── standards ────────────────────────────────────────────────────────────────
+
+async function createStandardsTable() {
+  try {
+    await query(`
+      CREATE TABLE IF NOT EXISTS standards (
+        id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        standard_no   VARCHAR(150) NOT NULL,
+        description   TEXT,
+        rev_number    VARCHAR(50),
+        rev_date      DATE,
+        comment       TEXT,
+        file_path     VARCHAR(500),
+        category      ENUM('SS/TS','ISO','DIN','MANUAL') DEFAULT 'MANUAL',
+        version       INT UNSIGNED DEFAULT 1,
+        parent_id     INT UNSIGNED NULL,
+        is_latest     TINYINT(1) DEFAULT 1,
+        created_by    VARCHAR(100),
+        updated_by    VARCHAR(100),
+        created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_standard_no (standard_no),
+        INDEX idx_category    (category),
+        INDEX idx_is_latest   (is_latest),
+        INDEX idx_parent_id   (parent_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+    console.log('✅ standards table created/verified');
+  } catch (error) {
+    console.error('❌ Error creating standards table:', error.message);
+    throw error;
+  }
+}
+
+// ─── control_plans ────────────────────────────────────────────────────────────
+
+async function createControlPlansTable() {
+  try {
+    await query(`
+      CREATE TABLE IF NOT EXISTS control_plans (
+        id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        name        VARCHAR(255) NOT NULL,
+        line        ENUM('FRONT LINE','REAR LINE','COMMON LINE','SOP / Quality Alert') NOT NULL DEFAULT 'FRONT LINE',
+        rev_no      VARCHAR(50),
+        rev_date    DATE,
+        file_path   VARCHAR(500),
+        is_active   TINYINT(1) DEFAULT 1,
+        language    ENUM('English','Hindi') DEFAULT 'English',
+        version     INT UNSIGNED DEFAULT 1,
+        parent_id   INT UNSIGNED NULL,
+        is_latest   TINYINT(1) DEFAULT 1,
+        created_by  VARCHAR(100),
+        updated_by  VARCHAR(100),
+        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_line      (line),
+        INDEX idx_is_latest (is_latest),
+        INDEX idx_is_active (is_active),
+        INDEX idx_parent_id (parent_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+    console.log('✅ control_plans table created/verified');
+  } catch (error) {
+    console.error('❌ Error creating control_plans table:', error.message);
+    throw error;
+  }
+}
+
+// ─── bearing_cup_plans ────────────────────────────────────────────────────────
+
+async function createBearingCupPlansTable() {
+  try {
+    await query(`
+      CREATE TABLE IF NOT EXISTS bearing_cup_plans (
+        id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        plan_date   DATE NOT NULL,
+        jt_type     VARCHAR(50) NOT NULL,
+        type        ENUM('G','NG') NOT NULL DEFAULT 'G',
+        shift1_qty  INT DEFAULT 0,
+        shift2_qty  INT DEFAULT 0,
+        shift3_qty  INT DEFAULT 0,
+        target      INT DEFAULT 0,
+        total_qty   INT DEFAULT 0,
+        created_by  VARCHAR(100),
+        updated_by  VARCHAR(100),
+        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_plan_jt_type (plan_date, jt_type, type),
+        INDEX idx_plan_date (plan_date)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+    console.log('✅ bearing_cup_plans table created/verified');
+  } catch (error) {
+    console.error('❌ Error creating bearing_cup_plans table:', error.message);
+    throw error;
+  }
+}
+
+// ─── hourly_production ────────────────────────────────────────────────────────
+
+async function createHourlyProductionTable() {
+  try {
+    await query(`
+      CREATE TABLE IF NOT EXISTS hourly_production (
+        id               INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        production_date  DATE NOT NULL,
+        hour_slot        TINYINT UNSIGNED NOT NULL COMMENT '6–29 maps to 06:00–05:00 next day',
+        part_type        ENUM('front','rear','ia') NOT NULL,
+        tube_length      VARCHAR(100),
+        quantity         INT DEFAULT 0,
+        remarks          TEXT,
+        created_by       VARCHAR(100),
+        updated_by       VARCHAR(100),
+        created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_prod_date  (production_date),
+        INDEX idx_hour_slot  (hour_slot),
+        INDEX idx_part_type  (part_type)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+    console.log('✅ hourly_production table created/verified');
+  } catch (error) {
+    console.error('❌ Error creating hourly_production table:', error.message);
+    throw error;
+  }
+}
+
+// ─── Skill Matrix Tables ───────────────────────────────────────────────────────
+
+async function createSkillMatrixTables() {
+  try {
+    await query(`
+      CREATE TABLE IF NOT EXISTS skill_matrix_machines (
+        id           INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        machine_name VARCHAR(255) NOT NULL,
+        machine_no   VARCHAR(100),
+        created_by   VARCHAR(255),
+        created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+    await query(`
+      CREATE TABLE IF NOT EXISTS skill_matrix_persons (
+        id                    INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        machine_id            INT UNSIGNED NOT NULL,
+        name                  VARCHAR(255) NOT NULL,
+        department            VARCHAR(255),
+        date_of_joining       DATE,
+        skill_level           TINYINT UNSIGNED DEFAULT 0,
+        last_skill_update_date DATE,
+        authorised_for        TEXT,
+        photo_path            VARCHAR(500),
+        created_by            VARCHAR(255),
+        created_at            DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at            DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_machine (machine_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+    console.log('✅ skill_matrix tables created/verified');
+  } catch (error) {
+    console.error('❌ Error creating skill_matrix tables:', error.message);
+    throw error;
+  }
+}
+
+// ─── Despatch Plan Tables ──────────────────────────────────────────────────────
+
+async function createDespatchPlanTables() {
+  try {
+    // One plan per 6am-to-6am "day"
+    await query(`
+      CREATE TABLE IF NOT EXISTS despatch_plans (
+        id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        plan_date   DATE NOT NULL,
+        created_by  VARCHAR(255),
+        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_plan_date (plan_date)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+    await query(`
+      CREATE TABLE IF NOT EXISTS despatch_vehicles (
+        id             INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        plan_id        INT UNSIGNED NOT NULL,
+        vehicle_label  VARCHAR(10) NOT NULL,
+        customer       VARCHAR(255),
+        is_completed   TINYINT(1) DEFAULT 0,
+        completed_at   DATETIME DEFAULT NULL,
+        INDEX idx_plan (plan_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+    await query(`
+      CREATE TABLE IF NOT EXISTS despatch_pallets (
+        id             INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        vehicle_id     INT UNSIGNED NOT NULL,
+        pallet_label   VARCHAR(50) NOT NULL,
+        part_number    VARCHAR(100) DEFAULT NULL,
+        tube_length    VARCHAR(50) DEFAULT NULL,
+        target_qty     INT DEFAULT 0,
+        scanned_qty    INT DEFAULT 0,
+        is_fulfilled   TINYINT(1) DEFAULT 0,
+        INDEX idx_vehicle (vehicle_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+    console.log('✅ despatch_plan tables created/verified');
+  } catch (error) {
+    console.error('❌ Error creating despatch_plan tables:', error.message);
+    throw error;
+  }
+}
+
+// ─── SOP Videos ───────────────────────────────────────────────────────────────
+
+async function createSopVideosTable() {
+  try {
+    await query(`
+      CREATE TABLE IF NOT EXISTS sop_videos (
+        id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        title       VARCHAR(255) NOT NULL,
+        file_path   VARCHAR(500) NOT NULL,
+        mime_type   VARCHAR(100) DEFAULT 'video/mp4',
+        file_size   BIGINT DEFAULT 0,
+        created_by  VARCHAR(100),
+        created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_created_at (created_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+    console.log('✅ sop_videos table created/verified');
+  } catch (error) {
+    console.error('❌ Error creating sop_videos table:', error.message);
+    throw error;
+  }
+}
+
 // ─── main export ──────────────────────────────────────────────────────────────
 
 export async function runBootstrap() {
@@ -397,6 +689,32 @@ export async function runBootstrap() {
     await createFieldImagesTable();
     await createUsersTable();
     await createPDIReportTable();
+    await createDrawingsTable();
+    await createStandardsTable();
+    await createControlPlansTable();
+    await createBearingCupPlansTable();
+    await createHourlyProductionTable();
+    await createSkillMatrixTables();
+    await createDespatchPlanTables();
+    await createSopVideosTable();
+
+    // // Migrations: add new columns to existing tables safely
+    // try {
+    //   await query(`ALTER TABLE despatch_pallets ADD COLUMN part_number VARCHAR(100) DEFAULT NULL`);
+    // } catch (_) { /* already exists — safe to ignore */ }
+    // try {
+    //   await query(`ALTER TABLE despatch_pallets ADD COLUMN tube_length VARCHAR(50) DEFAULT NULL`);
+    // } catch (_) { /* already exists — safe to ignore */ }
+    // try {
+    //   await query(`ALTER TABLE despatch_pallets MODIFY COLUMN pallet_label VARCHAR(50) NOT NULL`);
+    // } catch (_) { /* ok */ }
+
+    // // Bearing Cup extra shift columns migration
+    // for (let i = 4; i <= 6; i++) {
+    //   try {
+    //     await query(`ALTER TABLE bearing_cup_plans ADD COLUMN shift${i}_qty INT DEFAULT 0`);
+    //   } catch (_) { /* already exists — safe to ignore */ }
+    // }
 
     console.log('🎉 Bootstrap completed successfully');
     return true;

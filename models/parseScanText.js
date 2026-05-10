@@ -162,12 +162,9 @@ function parseF2(text) {
   const sl      = parts[2];
   const dateRaw = parts[3]; // "DD.MM.YYYY" or "NA"
 
-  // REV is typically at index 6; fall back to first '#'-containing token
-  let revRaw = parts[6] ?? '';
-  if (!revRaw || revRaw.toUpperCase() === 'NA') {
-    revRaw = parts.find(p => p.includes('#')) ?? '#';
-  }
-  const rev = normaliseRev(revRaw);
+  // REV is typically at index 7; fall back to first '#'-containing token
+  let revRaw = parts[7] ?? '';
+  const rev = revRaw;
 
   let dispatchDate = null;
   if (dateRaw && dateRaw.toUpperCase() !== 'NA') {
@@ -244,9 +241,10 @@ function parseF4(text) {
 
   if (!seg0.startsWith('P') || !seg1.startsWith('T') || !seg2.startsWith('V')) return null;
 
-  // seg0: P + plant(1) + partNo(rest)
-  const partNo = seg0.slice(2);  // strip 'P' and plant char
-
+  // seg0: P  + partNo + revno (last 1 digit)
+  const partNo = seg0.slice(1, -1);  // strip 'P' and plant char
+  const revNo = seg0.slice(-1);   
+  
   // seg1: T + DD(2) + MM(2) + YYYY(4) + SL(6)  → 1+2+2+4+6 = 15 chars
   if (seg1.length < 15) return null;
   const dd   = seg1.slice(1, 3);
@@ -255,14 +253,14 @@ function parseF4(text) {
   const sl   = seg1.slice(9, 15);
 
   // seg2: V + VENDOR
-  const vendor = seg2.slice(1);
+  const vendor = seg2;
 
   const dispatchDate = buildDate(yyyy, mm, dd);
 
   return {
     format: 'F4',
     partNo,
-    revNo: '#',            // no explicit rev field in this format
+    revNo,            // no explicit rev field in this format
     vendorCode: vendor,
     partSlNo: sl,
     dispatchDate,
@@ -281,9 +279,10 @@ function parseF5(text) {
   if (t.length !== 28) return null;
 
   // plant  = t[0]      (single letter, e.g. 'I')
-  const partNo = t.slice(1, 9);   // 8 chars
+  const partNo = t.slice(0, 8);   // 8 chars
   // t[9] === 'V'  (marker, verified by isF5)
-  const vendor = t.slice(10, 16); // 6 chars
+  const revNo = t.slice(8, 9); 
+  const vendor = t.slice(9, 16); // 6 chars
   const dd     = t.slice(16, 18);
   const mm     = t.slice(18, 20);
   const year   = '20' + t.slice(20, 22);
@@ -294,7 +293,7 @@ function parseF5(text) {
   return {
     format: 'F5',
     partNo,
-    revNo: '#',            // no explicit rev field in this format
+    revNo,            // no explicit rev field in this format
     vendorCode: vendor,
     partSlNo: sl,
     dispatchDate,

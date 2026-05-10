@@ -5,6 +5,12 @@ import {
   deleteImportantFields,
   addDocuments,
   deleteDocuments,
+  addCustomerNames,
+  deleteCustomerNames,
+  addStandardNames,
+  deleteStandardNames,
+  addControlPlanNames,
+  deleteControlPlanNames,
 } from '../models/dynamicFieldModel.js';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -93,6 +99,72 @@ export const deleteDocumentsHandler = async (req, res) => {
     const { docs } = req.body;
     if (!docs) return res.status(400).json({ success: false, message: 'docs array is required' });
     res.json({ success: true, data: await deleteDocuments(docs) });
+  } catch (error) {
+    handleError(res, error);
+  }
+};
+
+// ─── customer_names handlers ────────────────────────────────────────────────
+
+export const postCustomerNames = async (req, res) => {
+  try {
+    const { names } = req.body;
+    if (!names) return res.status(400).json({ success: false, message: 'names array is required' });
+    res.json({ success: true, data: await addCustomerNames(names) });
+  } catch (error) {
+    handleError(res, error);
+  }
+};
+
+export const deleteCustomerNamesHandler = async (req, res) => {
+  try {
+    const { names } = req.body;
+    if (!names) return res.status(400).json({ success: false, message: 'names array is required' });
+    res.json({ success: true, data: await deleteCustomerNames(names) });
+  } catch (error) {
+    handleError(res, error);
+  }
+};
+
+// ─── standard_names handlers ────────────────────────────────────────────────
+
+export const postStandardNames = async (req, res) => {
+  try {
+    const { names } = req.body;
+    if (!names) return res.status(400).json({ success: false, message: 'names array is required' });
+    res.json({ success: true, data: await addStandardNames(names) });
+  } catch (error) {
+    handleError(res, error);
+  }
+};
+
+export const deleteStandardNamesHandler = async (req, res) => {
+  try {
+    const { names } = req.body;
+    if (!names) return res.status(400).json({ success: false, message: 'names array is required' });
+    res.json({ success: true, data: await deleteStandardNames(names) });
+  } catch (error) {
+    handleError(res, error);
+  }
+};
+
+// ─── control_plan_names handlers ─────────────────────────────────────────────
+
+export const postControlPlanNames = async (req, res) => {
+  try {
+    const { names } = req.body;
+    if (!names) return res.status(400).json({ success: false, message: 'names array is required' });
+    res.json({ success: true, data: await addControlPlanNames(names) });
+  } catch (error) {
+    handleError(res, error);
+  }
+};
+
+export const deleteControlPlanNamesHandler = async (req, res) => {
+  try {
+    const { names } = req.body;
+    if (!names) return res.status(400).json({ success: false, message: 'names array is required' });
+    res.json({ success: true, data: await deleteControlPlanNames(names) });
   } catch (error) {
     handleError(res, error);
   }

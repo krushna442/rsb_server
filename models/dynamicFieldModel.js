@@ -31,6 +31,9 @@ export const getConfig = async () => {
       quality_verification_fields:  parseJSON(row.quality_verification_fields, '[]'),
       important_fields:             parseJSON(row.important_fields, '[]'),
       documents:                    parseJSON(row.documents, '[]'),
+      customer_names:               parseJSON(row.customer_names, '[]'),
+      standard_names:              parseJSON(row.standard_names, '[]'),
+      control_plan_names:           parseJSON(row.control_plan_names, '[]'),
       updated_at:                   row.updated_at,
     };
   } catch (error) {
@@ -94,19 +97,30 @@ export const updateConfig = async (patch) => {
     if (
       patch.product_fields === undefined &&
       patch.approval_fields === undefined &&
-      patch.quality_verification_fields === undefined
+      patch.quality_verification_fields === undefined &&
+      patch.customer_names === undefined &&
+      patch.standard_names === undefined &&
+      patch.control_plan_names === undefined
     ) {
-      throw new Error('Nothing to update. Send at least one of: product_fields, approval_fields, quality_verification_fields');
+      throw new Error('Nothing to update. Send at least one of: product_fields, approval_fields, quality_verification_fields, customer_names, standard_names, control_plan_names');
     }
 
     await execute(
       `UPDATE dynamic_fields
-       SET product_fields = ?, approval_fields = ?, quality_verification_fields = ?
+       SET product_fields = ?, 
+           approval_fields = ?, 
+           quality_verification_fields = ?,
+           customer_names = ?,
+           standard_names = ?,
+           control_plan_names = ?
        WHERE id = 1`,
       [
         JSON.stringify(newProductFields),
         JSON.stringify(newApprovalFields),
         JSON.stringify(newQualityVerificationFields),
+        JSON.stringify(patch.customer_names !== undefined ? patch.customer_names : current.customer_names),
+        JSON.stringify(patch.standard_names !== undefined ? patch.standard_names : current.standard_names),
+        JSON.stringify(patch.control_plan_names !== undefined ? patch.control_plan_names : current.control_plan_names),
       ]
     );
 
@@ -246,6 +260,144 @@ export const deleteDocuments = async (docs) => {
     return getConfig();
   } catch (error) {
     console.error('Error in deleteDocuments:', error);
+    throw error;
+  }
+};
+
+// ─── customer_names ──────────────────────────────────────────────────────────
+
+export const addCustomerNames = async (names) => {
+  try {
+    if (!Array.isArray(names) || names.length === 0)
+      throw new Error('names must be a non-empty array of strings');
+
+    const current = await getConfig();
+    const updated = [...current.customer_names];
+
+    for (const name of names) {
+      if (!updated.includes(name)) updated.push(name);
+    }
+
+    await execute(
+      'UPDATE dynamic_fields SET customer_names = ? WHERE id = 1',
+      [JSON.stringify(updated)]
+    );
+
+    return getConfig();
+  } catch (error) {
+    console.error('Error in addCustomerNames:', error);
+    throw error;
+  }
+};
+
+export const deleteCustomerNames = async (names) => {
+  try {
+    if (!Array.isArray(names) || names.length === 0)
+      throw new Error('names must be a non-empty array of strings');
+
+    const current = await getConfig();
+    const updated = current.customer_names.filter(n => !names.includes(n));
+
+    await execute(
+      'UPDATE dynamic_fields SET customer_names = ? WHERE id = 1',
+      [JSON.stringify(updated)]
+    );
+
+    return getConfig();
+  } catch (error) {
+    console.error('Error in deleteCustomerNames:', error);
+    throw error;
+  }
+};
+
+// ─── standard_names ──────────────────────────────────────────────────────────
+
+export const addStandardNames = async (names) => {
+  try {
+    if (!Array.isArray(names) || names.length === 0)
+      throw new Error('names must be a non-empty array of strings');
+
+    const current = await getConfig();
+    const updated = [...current.standard_names];
+
+    for (const name of names) {
+      if (!updated.includes(name)) updated.push(name);
+    }
+
+    await execute(
+      'UPDATE dynamic_fields SET standard_names = ? WHERE id = 1',
+      [JSON.stringify(updated)]
+    );
+
+    return getConfig();
+  } catch (error) {
+    console.error('Error in addStandardNames:', error);
+    throw error;
+  }
+};
+
+export const deleteStandardNames = async (names) => {
+  try {
+    if (!Array.isArray(names) || names.length === 0)
+      throw new Error('names must be a non-empty array of strings');
+
+    const current = await getConfig();
+    const updated = current.standard_names.filter(n => !names.includes(n));
+
+    await execute(
+      'UPDATE dynamic_fields SET standard_names = ? WHERE id = 1',
+      [JSON.stringify(updated)]
+    );
+
+    return getConfig();
+  } catch (error) {
+    console.error('Error in deleteStandardNames:', error);
+    throw error;
+  }
+};
+
+// ─── control_plan_names ──────────────────────────────────────────────────────
+
+export const addControlPlanNames = async (names) => {
+  try {
+    if (!Array.isArray(names) || names.length === 0)
+      throw new Error('names must be a non-empty array of strings');
+
+    const current = await getConfig();
+    const updated = [...current.control_plan_names];
+
+    for (const name of names) {
+      if (!updated.includes(name)) updated.push(name);
+    }
+
+    await execute(
+      'UPDATE dynamic_fields SET control_plan_names = ? WHERE id = 1',
+      [JSON.stringify(updated)]
+    );
+
+    return getConfig();
+  } catch (error) {
+    console.error('Error in addControlPlanNames:', error);
+    throw error;
+  }
+};
+
+export const deleteControlPlanNames = async (names) => {
+  try {
+    if (!Array.isArray(names) || names.length === 0)
+      throw new Error('names must be a non-empty array of strings');
+
+    const current = await getConfig();
+    const updated = current.control_plan_names.filter(n => !names.includes(n));
+
+    await execute(
+      'UPDATE dynamic_fields SET control_plan_names = ? WHERE id = 1',
+      [JSON.stringify(updated)]
+    );
+
+    return getConfig();
+  } catch (error) {
+    console.error('Error in deleteControlPlanNames:', error);
     throw error;
   }
 };

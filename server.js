@@ -15,6 +15,16 @@ import fieldImageRoutes from "./routes/fieldImageRoutes.js";
 import {initShiftReportCrons} from "./utils/Shiftreportcron.js";
 import pdiReportRoutes from "./routes/Pdireportroutes.js";
 import pdiManualRoute from "./routes/pdiManualRoute.js";
+import drawingRoutes from "./routes/drawingRoutes.js";
+import standardRoutes from "./routes/standardRoutes.js";
+import controlPlanRoutes from "./routes/controlPlanRoutes.js";
+import bearingCupRoutes from "./routes/bearingCupRoutes.js";
+import hourlyProductionRoutes from "./routes/hourlyProductionRoutes.js";
+import skillMatrixRoutes from "./routes/skillMatrixRoutes.js";
+import despatchPlanRoutes from "./routes/despatchPlanRoutes.js";
+import sopVideoRoutes from "./routes/sopVideoRoutes.js";
+import { sendDailyExcelReport } from "./controllers/despatchPlanController.js";
+import cron from "node-cron";
 dotenv.config();
 
 const app = express();
@@ -24,7 +34,7 @@ const PORT = process.env.PORT || 5000;
 // ✅ CORS setup
 app.use(
   cors({
-    origin: ["http://192.168.1.8:3000", "http://172.22.39.17:3000","http://10.99.45.17:3000","http://192.168.1.10:3000","http://10.99.45.17:3001","http://192.168.1.10:3000"],
+    origin: ["http://192.168.1.9:3000","http://10.113.176.17:3000", "http://172.22.39.17:3000","http://10.99.45.17:3000","http://192.168.1.7:3000","http://10.99.45.17:3001","http://192.168.1.10:3000"],
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
     allowedHeaders: ["Content-Type", "Authorization"],
@@ -58,13 +68,34 @@ async function startServer() {
     app.use("/api/field-images", fieldImageRoutes);
     app.use("/api/pdi-reports", pdiReportRoutes);
     app.use("/api/pdi-manual", pdiManualRoute);
+    app.use("/api/drawings", drawingRoutes);
+    app.use("/api/standards", standardRoutes);
+    app.use("/api/control-plans", controlPlanRoutes);
+    app.use("/api/bearing-cup-plans", bearingCupRoutes);
+    app.use("/api/hourly-production", hourlyProductionRoutes);
+    app.use("/api/skill-matrix", skillMatrixRoutes);
+    app.use("/api/despatch-plan", despatchPlanRoutes);
+    app.use("/api/sop-videos", sopVideoRoutes);
     app.get("/", (req, res) => {
       res.send("API running...");
     });
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  initShiftReportCrons(); // ✅ moved here
+  // initShiftReportCrons();
+
+  // 6:05 AM IST daily despatch Excel report (IST = UTC+5:30 → UTC 00:35)
+  cron.schedule('35 0 * * *', async () => {
+    try {
+      const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const dateStr = yesterday.toISOString().slice(0, 10);
+      console.log(`[CRON] Sending daily despatch report for ${dateStr}`);
+      await sendDailyExcelReport(dateStr);
+      console.log('[CRON] Despatch report sent');
+    } catch (err) {
+      console.error('[CRON] Despatch report error:', err.message);
+    }
+  }, { timezone: 'Asia/Kolkata' });
 });
   } catch (err) {
     console.error("Startup error:", err);

@@ -249,7 +249,14 @@ export const updateProduct = async (
       }
 
       // ── Track edited fields (only non-privileged users) ──────────────────
-      if (
+      if (isSuperAdmin) {
+        // Super admin updates are auto-approved
+        fields.push("status = 'active'");
+        fields.push("quality_verified = 'approved'");
+        fields.push("approved = 'approved'");
+        fields.push('edited = 0', 'edited_fields = ?');
+        values.push(JSON.stringify([]));
+      } else if (
         changed.length > 0 &&
         existing.quality_verified === 'approved'
       ) {
