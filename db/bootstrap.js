@@ -29,6 +29,7 @@ async function createUsersTable() {
         menu_array          JSON DEFAULT ('[]'),
         document_name_array JSON DEFAULT ('[]'),
         mail_types          JSON DEFAULT ('[]'),
+        nav_array           JSON DEFAULT ('[]'),
         profile_image       VARCHAR(255) DEFAULT NULL,
         is_active           TINYINT(1) DEFAULT 1,
         created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -46,14 +47,14 @@ async function createUsersTable() {
     if (!existing.length) {
       await query(
         `INSERT INTO users
-          (name, mobile, username, email, password, role, column_array, menu_array, document_name_array, profile_image, is_active, show_image)
+          (name, mobile, username, email, password, role, column_array, menu_array, document_name_array, nav_array, profile_image, is_active, show_image)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           'Krushna',
           '9876543210',
           'krushna_07',
           'krushna.corenova@gmail.com',
-          '12345678',                       // ⚠️ hash this before production (e.g. bcrypt)
+          '12345678',
           'super admin',
 
           // column_array
@@ -64,6 +65,27 @@ async function createUsersTable() {
 
           // document_name_array
           JSON.stringify(['PPAP', 'Drawings', 'Test Reports']),
+
+          // nav_array
+          JSON.stringify(['Dashboard',
+  'Product Master',
+  'Production Approval',
+  'Product Scanning',
+  'Quality Approval',
+  'Documents',
+  'Drawings',
+  'Standards',
+  'Control Plan',
+  'Bearing Cup Plan',
+  'Hourly Production',
+  'Despatch Plan',
+  'Skill Matrix',
+  'Product Specifications',
+  'Dynamic Fields',
+  'Scanned Products',
+  'PDI Report',
+  'Users',
+  'Settings']),
 
           'uploads/user_profile/profile-1775042275569-KC_logo.jpg',
           1,       // is_active

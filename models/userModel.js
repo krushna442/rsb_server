@@ -6,7 +6,8 @@ const parseJSONCols = (row) => {
     ...row,
     column_array: typeof row.column_array === 'string' ? JSON.parse(row.column_array) : (row.column_array || []),
     menu_array: typeof row.menu_array === 'string' ? JSON.parse(row.menu_array) : (row.menu_array || []),
-    document_name_array: typeof row.document_name_array === 'string' ? JSON.parse(row.document_name_array) : (row.document_name_array || [])
+    document_name_array: typeof row.document_name_array === 'string' ? JSON.parse(row.document_name_array) : (row.document_name_array || []),
+    nav_array: typeof row.nav_array === 'string' ? JSON.parse(row.nav_array) : (row.nav_array || [])
   };
 };
 
@@ -22,6 +23,7 @@ export const createUser = async (userData) => {
       column_array = [],
       menu_array = [],
       document_name_array = [],
+      nav_array = [],
       show_image = 'true'
     } = userData;
 
@@ -33,8 +35,8 @@ export const createUser = async (userData) => {
     const assignedRole = validRoles.includes(role) ? role : 'viewer';
 
     const result = await execute(
-      `INSERT INTO users (name, mobile, username, email, password, role, column_array, menu_array, document_name_array,  show_image)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO users (name, mobile, username, email, password, role, column_array, menu_array, document_name_array, nav_array, show_image)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         name,
         mobile,
@@ -45,6 +47,7 @@ export const createUser = async (userData) => {
         JSON.stringify(column_array),
         JSON.stringify(menu_array),
         JSON.stringify(document_name_array),
+        JSON.stringify(nav_array),
         show_image
       ]
     );
@@ -109,8 +112,8 @@ const allowedFields = [
   'column_array',
   'menu_array',
   'document_name_array',
+  'nav_array',
   'is_active'
-  
 ];        let fields = [];
         let values = [];
 
@@ -134,6 +137,11 @@ const allowedFields = [
         if (updateData.document_name_array !== undefined) {
             fields.push('document_name_array = ?');
             values.push(JSON.stringify(updateData.document_name_array));
+        }
+
+        if (updateData.nav_array !== undefined) {
+            fields.push('nav_array = ?');
+            values.push(JSON.stringify(updateData.nav_array));
         }
 
         if(updateData.is_active !== undefined) {

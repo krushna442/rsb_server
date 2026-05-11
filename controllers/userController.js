@@ -19,7 +19,7 @@ const JWT_EXPIRES_IN = '30d';
 // @access  Public (Or super admin depending on requirement)
 export const register = async (req, res) => {
   try {
-    const { name, mobile, username, email, password, role, column_array, menu_array, document_name_array, show_image } = req.body;
+    const { name, mobile, username, email, password, role, column_array, menu_array, document_name_array, nav_array, show_image } = req.body;
 
     if (!name || !username || !email || !password) {
       return res.status(400).json({ success: false, message: 'Please add all required fields: name, username, email, password' });
@@ -47,6 +47,7 @@ export const register = async (req, res) => {
       column_array,
       menu_array,
       document_name_array,
+      nav_array,
       show_image  
     });
 

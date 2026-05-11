@@ -710,43 +710,47 @@ export const getDropdownOptions = async () => {
 
     const rows = await query(`
       SELECT
-        GROUP_CONCAT(DISTINCT customer) AS customers,
+        GROUP_CONCAT(DISTINCT TRIM(customer)) AS customers,
 
         GROUP_CONCAT(
-          DISTINCT JSON_UNQUOTE(JSON_EXTRACT(specification, '$.partType'))
+          DISTINCT TRIM(JSON_UNQUOTE(JSON_EXTRACT(specification, '$.partType')))
         ) AS productTypes,
 
         GROUP_CONCAT(
-          DISTINCT JSON_UNQUOTE(JSON_EXTRACT(specification, '$.tubeDiameter'))
+          DISTINCT TRIM(JSON_UNQUOTE(JSON_EXTRACT(specification, '$.tubeDiameter')))
         ) AS tubeDia,
 
         GROUP_CONCAT(
-          DISTINCT JSON_UNQUOTE(JSON_EXTRACT(specification, '$.couplingFlangeOrientations'))
+          DISTINCT TRIM(JSON_UNQUOTE(JSON_EXTRACT(specification, '$.couplingFlangeOrientations')))
         ) AS cFlangeOrientation,
 
         GROUP_CONCAT(
-          DISTINCT JSON_UNQUOTE(JSON_EXTRACT(specification, '$.mountingDetailsCouplingFlange'))
+          DISTINCT TRIM(JSON_UNQUOTE(JSON_EXTRACT(specification, '$.mountingDetailsCouplingFlange')))
         ) AS couplingFlange,
 
         GROUP_CONCAT(
-          DISTINCT JSON_UNQUOTE(JSON_EXTRACT(specification, '$.series'))
+          DISTINCT TRIM(JSON_UNQUOTE(JSON_EXTRACT(specification, '$.series')))
         ) AS jointType,
 
         GROUP_CONCAT(
-          DISTINCT JSON_UNQUOTE(JSON_EXTRACT(specification, '$.mountingDetailsFlangeYoke'))
+          DISTINCT TRIM(JSON_UNQUOTE(JSON_EXTRACT(specification, '$.mountingDetailsFlangeYoke')))
         ) AS flangeYoke
 
       FROM products
       WHERE specification IS NOT NULL
     `);
 
-
     const r = rows[0] || {};
-
 
     const split = (str) => {
       if (!str) return [];
-      return str.split(",").map(s => s.trim()).filter(Boolean);
+
+      return [...new Set(
+        str
+          .split(",")
+          .map(s => s.trim())
+          .filter(Boolean)
+      )];
     };
 
     const result = {
@@ -758,7 +762,6 @@ export const getDropdownOptions = async () => {
       JOINT_TYPE_OPTIONS: split(r.jointType),
       FLANGE_YOKE_OPTIONS: split(r.flangeYoke),
     };
-
 
     return result;
 

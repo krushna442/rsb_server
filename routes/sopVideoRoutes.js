@@ -1,7 +1,7 @@
 import express from 'express';
-import { listVideos, uploadVideo, deleteVideo, streamVideo } from '../controllers/sopVideoController.js';
+import { listVideos, uploadVideo, deleteVideo, streamVideo, uploadChunkFile } from '../controllers/sopVideoController.js';
 import { protectRoute } from '../middlewares/authMiddleware.js';
-import { uploadSopVideo } from '../middlewares/uploadFiles.js';
+import { uploadSopVideo, uploadSopVideoChunk } from '../middlewares/uploadFiles.js';
 
 const router = express.Router();
 
@@ -14,6 +14,7 @@ const isAdmin = (req, res, next) => {
 
 router.get('/', protectRoute, listVideos);
 router.post('/', protectRoute, isAdmin, uploadSopVideo.single('video'), uploadVideo);
+router.post('/chunk', protectRoute, isAdmin, uploadSopVideoChunk.single('chunk'), uploadChunkFile);
 router.delete('/:id', protectRoute, isAdmin, deleteVideo);
 router.get('/stream/:id', streamVideo); // Streaming often needs to be accessible without complex auth headers if used in native video tags, but can be protected if needed.
 

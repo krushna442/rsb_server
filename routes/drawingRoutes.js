@@ -15,12 +15,12 @@ const uploadFields = uploadDrawingWithBom.fields([
   { name: 'bom_file', maxCount: 1 },
 ]);
 
-router.get('/',                      protectRoute, listDrawings);
-router.get('/:id',                   protectRoute, getDrawing);
-router.get('/:id/versions',          protectRoute, getDrawingVersions);
-router.post('/',                     protectRoute, uploadFields, addDrawing);
-router.put('/:id',                   protectRoute, uploadFields, editDrawing);
-router.post('/:id/new-version',      protectRoute, uploadFields, addDrawingVersion);
-router.delete('/:id',                protectRoute, deleteDrawing);
+router.get('/',                 listDrawings);
+router.get('/:id',              getDrawing);
+router.get('/:id/versions',     getDrawingVersions);
+router.post('/',                uploadFields, addDrawing);
+router.put('/:id',              uploadFields, editDrawing);
+router.post('/:id/new-version', uploadFields, addDrawingVersion);
+router.delete('/:id',           deleteDrawing);
 
 export default router;
