@@ -47,9 +47,10 @@ export const getStandardVersions = async (req, res) => {
 
 export const addStandard = async (req, res) => {
   try {
-    const { standard_no, description, rev_number, rev_date, comment, category } = req.body;
+    const { standard_no, description, rev_number, rev_date, comment, category, remarks, file_path_from_chunks } = req.body;
     if (!standard_no) return res.status(400).json({ success: false, message: 'standard_no is required' });
-    const file_path = req.file ? `uploads/standards/${req.file.filename}` : null;
+    let file_path = req.file ? `uploads/standards/${req.file.filename}` : null;
+    if (file_path_from_chunks) file_path = file_path_from_chunks;
     const createdBy = parseUser(req);
     const validCats = ['SS/TS', 'ISO', 'DIN', 'MANUAL'];
     const cat = validCats.includes(category) ? category : 'MANUAL';
@@ -60,8 +61,8 @@ export const addStandard = async (req, res) => {
       newVersion = existing.version + 1;
     }
     const result = await execute(
-      `INSERT INTO standards (standard_no, description, rev_number, rev_date, comment, file_path, category, version, is_latest, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
-      [standard_no, description || null, rev_number || null, rev_date || null, comment || null, file_path, cat, newVersion, createdBy]
+      `INSERT INTO standards (standard_no, description, rev_number, rev_date, comment, file_path, category, version, is_latest, remarks, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+      [standard_no, description || null, rev_number || null, rev_date || null, comment || null, file_path, cat, newVersion, remarks || null, createdBy]
     );
     const newRow = await queryOne('SELECT * FROM standards WHERE id = ?', [result.insertId]);
     res.status(201).json({ success: true, data: newRow });
@@ -73,7 +74,7 @@ export const addStandard = async (req, res) => {
 export const editStandard = async (req, res) => {
   try {
     const { id } = req.params;
-    const { description, rev_number, rev_date, comment, category } = req.body;
+    const { description, rev_number, rev_date, comment, category, remarks } = req.body;
     const updatedBy = parseUser(req);
     const validCats = ['SS/TS', 'ISO', 'DIN', 'MANUAL'];
     const updates = [];
@@ -82,7 +83,9 @@ export const editStandard = async (req, res) => {
     if (rev_number !== undefined)  { updates.push('rev_number=?');  vals.push(rev_number); }
     if (rev_date !== undefined)    { updates.push('rev_date=?');    vals.push(rev_date); }
     if (comment !== undefined)     { updates.push('comment=?');     vals.push(comment); }
+    if (remarks !== undefined)     { updates.push('remarks=?');     vals.push(remarks); }
     if (validCats.includes(category)) { updates.push('category=?'); vals.push(category); }
+    if (req.body.file_path_from_chunks) { updates.push('file_path=?'); vals.push(req.body.file_path_from_chunks); }
     updates.push('updated_by=?'); vals.push(updatedBy);
     vals.push(id);
     await execute(`UPDATE standards SET ${updates.join(',')} WHERE id=?`, vals);
@@ -96,17 +99,18 @@ export const editStandard = async (req, res) => {
 export const addStandardVersion = async (req, res) => {
   try {
     const { id } = req.params;
-    const { rev_number, rev_date, comment } = req.body;
+    const { rev_number, rev_date, comment, remarks, file_path_from_chunks } = req.body;
     const createdBy = parseUser(req);
     const existing = await queryOne('SELECT * FROM standards WHERE id = ?', [id]);
     if (!existing) return res.status(404).json({ success: false, message: 'Not found' });
-    const file_path = req.file ? `uploads/standards/${req.file.filename}` : null;
+    let file_path = req.file ? `uploads/standards/${req.file.filename}` : null;
+    if (file_path_from_chunks) file_path = file_path_from_chunks;
     await execute('UPDATE standards SET is_latest = 0 WHERE standard_no = ? AND is_latest = 1', [existing.standard_no]);
     const maxVer = await queryOne('SELECT MAX(version) as mv FROM standards WHERE standard_no = ?', [existing.standard_no]);
     const newVersion = (maxVer?.mv || 0) + 1;
     const result = await execute(
-      `INSERT INTO standards (standard_no, description, rev_number, rev_date, comment, file_path, category, version, parent_id, is_latest, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
-      [existing.standard_no, existing.description, rev_number || existing.rev_number, rev_date || new Date().toISOString().slice(0, 10), comment || existing.comment, file_path || existing.file_path, existing.category, newVersion, existing.id, createdBy]
+      `INSERT INTO standards (standard_no, description, rev_number, rev_date, comment, file_path, category, version, parent_id, is_latest, remarks, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+      [existing.standard_no, existing.description, rev_number || existing.rev_number, rev_date || new Date().toISOString().slice(0, 10), comment || existing.comment, file_path || existing.file_path, existing.category, newVersion, existing.id, remarks || null, createdBy]
     );
     const newRow = await queryOne('SELECT * FROM standards WHERE id = ?', [result.insertId]);
     res.status(201).json({ success: true, data: newRow });
@@ -131,6 +135,65 @@ export const deleteStandard = async (req, res) => {
     }
     res.json({ success: true, message: 'Deleted' });
   } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ── POST /api/standards/chunk (Chunked Upload) ─────────────────────────────
+export const uploadStandardChunk = async (req, res) => {
+  try {
+    const uploadId = req.query.uploadId || req.body.uploadId;
+    const chunkIndex = req.query.chunkIndex || req.body.chunkIndex;
+    const { totalChunks, fileName } = req.body;
+
+    if (!req.file) return res.status(400).json({ success: false, message: 'Chunk file missing' });
+
+    const cIdx = parseInt(chunkIndex);
+    const tChunks = parseInt(totalChunks);
+
+    if (cIdx === tChunks - 1) {
+      const finalDir = 'uploads/standards';
+      if (!fs.existsSync(finalDir)) fs.mkdirSync(finalDir, { recursive: true });
+      const finalName = `${Date.now()}_${fileName}`;
+      const finalPath = path.join(finalDir, finalName);
+      
+      const writeStream = fs.createWriteStream(finalPath);
+      const tempDir = `uploads/temp_chunks/${uploadId}`;
+      
+      const finishPromise = new Promise((resolve, reject) => {
+        writeStream.on('finish', resolve);
+        writeStream.on('error', reject);
+      });
+
+      const appendChunk = (index) => {
+        return new Promise((resolve, reject) => {
+          if (index >= tChunks) {
+            writeStream.end();
+            return resolve();
+          }
+          const chunkPath = path.join(tempDir, `chunk_${index}`);
+          if (!fs.existsSync(chunkPath)) return reject(new Error(`Missing chunk ${index}`));
+          
+          const readStream = fs.createReadStream(chunkPath);
+          readStream.pipe(writeStream, { end: false });
+          readStream.on('end', () => {
+            fs.unlinkSync(chunkPath);
+            resolve(appendChunk(index + 1));
+          });
+          readStream.on('error', reject);
+        });
+      };
+
+      await appendChunk(0);
+      await finishPromise;
+      fs.rmdirSync(tempDir);
+
+      return res.json({ success: true, message: 'Upload complete', file_path: `uploads/standards/${finalName}` });
+    }
+
+    res.json({ success: true, message: 'Chunk uploaded' });
+  } catch (err) {
+    console.error('uploadStandardChunk error:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 };

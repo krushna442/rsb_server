@@ -3,7 +3,8 @@ import express from 'express';
 import { protectRoute } from '../middlewares/authMiddleware.js';
 import {
   getPlanByDate, savePlan, updateScanData,
-  markVehicleComplete, triggerDailyReport, exportPlan
+  markVehicleComplete, triggerDailyReport, exportPlan,
+  updateVehiclePriority
 } from '../controllers/despatchPlanController.js';
 
 const router = express.Router();
@@ -15,11 +16,13 @@ const productionOrAbove = (req, res, next) => {
   next();
 };
 
-router.get('/',                             protectRoute, getPlanByDate);
-router.get('/export',                       protectRoute, exportPlan);
-router.post('/save',                        protectRoute, productionOrAbove, savePlan);
-router.post('/sync-scan',                   protectRoute, productionOrAbove, updateScanData);
+router.get('/',                               protectRoute, getPlanByDate);
+router.get('/export',                         protectRoute, exportPlan);
+router.post('/save',                          protectRoute, productionOrAbove, savePlan);
+router.post('/sync-scan',                     protectRoute, productionOrAbove, updateScanData);
 router.patch('/vehicles/:vehicleId/complete', protectRoute, productionOrAbove, markVehicleComplete);
-router.post('/send-daily-report',           protectRoute, triggerDailyReport);
+router.patch('/vehicles/:vehicleId/priority', protectRoute, updateVehiclePriority);
+router.post('/send-daily-report',             protectRoute, triggerDailyReport);
 
 export default router;
+

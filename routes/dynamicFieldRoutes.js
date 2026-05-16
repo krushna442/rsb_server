@@ -12,6 +12,8 @@ import {
   deleteStandardNamesHandler,
   postControlPlanNames,
   deleteControlPlanNamesHandler,
+  postBearingJTTypes,
+  deleteBearingJTTypesHandler,
 } from '../controllers/dynamicFieldController.js';
 
 const router = express.Router();
@@ -39,5 +41,9 @@ router.delete('/standard-names', deleteStandardNamesHandler); // remove
 // ── control_plan_names ──────────────────────────────────────────────────────
 router.post('/control-plan-names',   postControlPlanNames);        // add
 router.delete('/control-plan-names', deleteControlPlanNamesHandler); // remove
+
+// ── bearing_JT_types ────────────────────────────────────────────────────────
+router.post('/bearing-jt-types',   postBearingJTTypes);        // add
+router.delete('/bearing-jt-types', deleteBearingJTTypesHandler); // remove
 
 export default router;

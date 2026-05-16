@@ -11,6 +11,8 @@ import {
   deleteStandardNames,
   addControlPlanNames,
   deleteControlPlanNames,
+  addBearingJTTypes,
+  deleteBearingJTTypes,
 } from '../models/dynamicFieldModel.js';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -165,6 +167,28 @@ export const deleteControlPlanNamesHandler = async (req, res) => {
     const { names } = req.body;
     if (!names) return res.status(400).json({ success: false, message: 'names array is required' });
     res.json({ success: true, data: await deleteControlPlanNames(names) });
+  } catch (error) {
+    handleError(res, error);
+  }
+};
+
+// ─── bearing_JT_types handlers ─────────────────────────────────────────────
+
+export const postBearingJTTypes = async (req, res) => {
+  try {
+    const { names } = req.body;
+    if (!names) return res.status(400).json({ success: false, message: 'names array is required' });
+    res.json({ success: true, data: await addBearingJTTypes(names) });
+  } catch (error) {
+    handleError(res, error);
+  }
+};
+
+export const deleteBearingJTTypesHandler = async (req, res) => {
+  try {
+    const { names } = req.body;
+    if (!names) return res.status(400).json({ success: false, message: 'names array is required' });
+    res.json({ success: true, data: await deleteBearingJTTypes(names) });
   } catch (error) {
     handleError(res, error);
   }

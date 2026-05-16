@@ -24,6 +24,7 @@ export const createUser = async (userData) => {
       menu_array = [],
       document_name_array = [],
       nav_array = [],
+      despatch_mail = 0,
       show_image = 'true'
     } = userData;
 
@@ -35,8 +36,8 @@ export const createUser = async (userData) => {
     const assignedRole = validRoles.includes(role) ? role : 'viewer';
 
     const result = await execute(
-      `INSERT INTO users (name, mobile, username, email, password, role, column_array, menu_array, document_name_array, nav_array, show_image)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO users (name, mobile, username, email, password, role, column_array, menu_array, document_name_array, nav_array, despatch_mail, show_image)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         name,
         mobile,
@@ -48,6 +49,7 @@ export const createUser = async (userData) => {
         JSON.stringify(menu_array),
         JSON.stringify(document_name_array),
         JSON.stringify(nav_array),
+        despatch_mail ? 1 : 0,
         show_image
       ]
     );
@@ -113,6 +115,7 @@ const allowedFields = [
   'menu_array',
   'document_name_array',
   'nav_array',
+  'despatch_mail',
   'is_active'
 ];        let fields = [];
         let values = [];
@@ -147,6 +150,11 @@ const allowedFields = [
         if(updateData.is_active !== undefined) {
             fields.push('is_active = ?');
             values.push(updateData.is_active ? 1 : 0);
+        }
+
+        if(updateData.despatch_mail !== undefined) {
+            fields.push('despatch_mail = ?');
+            values.push(updateData.despatch_mail ? 1 : 0);
         }
 
         if (updateData.mail_types !== undefined) {
@@ -281,5 +289,18 @@ export const removeMailTypes = async (userId, mailTypes) => {
   } catch (err) {
     console.error('Error in removeMailTypes:', err);
     throw err;
+  }
+};
+
+/** Returns emails of all active users who have despatch_mail = 1 */
+export const findDespatchMailEmails = async () => {
+  try {
+    const rows = await query(
+      `SELECT email FROM users WHERE despatch_mail = 1 AND is_active = 1`
+    );
+    return rows.map(r => r.email).filter(Boolean);
+  } catch (error) {
+    console.error('Error in findDespatchMailEmails:', error);
+    throw error;
   }
 };

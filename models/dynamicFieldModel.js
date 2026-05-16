@@ -34,6 +34,7 @@ export const getConfig = async () => {
       customer_names:               parseJSON(row.customer_names, '[]'),
       standard_names:              parseJSON(row.standard_names, '[]'),
       control_plan_names:           parseJSON(row.control_plan_names, '[]'),
+      bearing_JT_types:             parseJSON(row.bearing_JT_types, '[]'),
       updated_at:                   row.updated_at,
     };
   } catch (error) {
@@ -100,9 +101,10 @@ export const updateConfig = async (patch) => {
       patch.quality_verification_fields === undefined &&
       patch.customer_names === undefined &&
       patch.standard_names === undefined &&
-      patch.control_plan_names === undefined
+      patch.control_plan_names === undefined &&
+      patch.bearing_JT_types === undefined
     ) {
-      throw new Error('Nothing to update. Send at least one of: product_fields, approval_fields, quality_verification_fields, customer_names, standard_names, control_plan_names');
+      throw new Error('Nothing to update. Send at least one of: product_fields, approval_fields, quality_verification_fields, customer_names, standard_names, control_plan_names, bearing_JT_types');
     }
 
     await execute(
@@ -112,7 +114,8 @@ export const updateConfig = async (patch) => {
            quality_verification_fields = ?,
            customer_names = ?,
            standard_names = ?,
-           control_plan_names = ?
+           control_plan_names = ?,
+           bearing_JT_types = ?
        WHERE id = 1`,
       [
         JSON.stringify(newProductFields),
@@ -121,6 +124,7 @@ export const updateConfig = async (patch) => {
         JSON.stringify(patch.customer_names !== undefined ? patch.customer_names : current.customer_names),
         JSON.stringify(patch.standard_names !== undefined ? patch.standard_names : current.standard_names),
         JSON.stringify(patch.control_plan_names !== undefined ? patch.control_plan_names : current.control_plan_names),
+        JSON.stringify(patch.bearing_JT_types !== undefined ? patch.bearing_JT_types : current.bearing_JT_types),
       ]
     );
 
@@ -398,6 +402,52 @@ export const deleteControlPlanNames = async (names) => {
     return getConfig();
   } catch (error) {
     console.error('Error in deleteControlPlanNames:', error);
+    throw error;
+  }
+};
+
+// ─── bearing_JT_types ──────────────────────────────────────────────────────
+
+export const addBearingJTTypes = async (names) => {
+  try {
+    if (!Array.isArray(names) || names.length === 0)
+      throw new Error('names must be a non-empty array of strings');
+
+    const current = await getConfig();
+    const updated = [...current.bearing_JT_types];
+
+    for (const name of names) {
+      if (!updated.includes(name)) updated.push(name);
+    }
+
+    await execute(
+      'UPDATE dynamic_fields SET bearing_JT_types = ? WHERE id = 1',
+      [JSON.stringify(updated)]
+    );
+
+    return getConfig();
+  } catch (error) {
+    console.error('Error in addBearingJTTypes:', error);
+    throw error;
+  }
+};
+
+export const deleteBearingJTTypes = async (names) => {
+  try {
+    if (!Array.isArray(names) || names.length === 0)
+      throw new Error('names must be a non-empty array of strings');
+
+    const current = await getConfig();
+    const updated = current.bearing_JT_types.filter(n => !names.includes(n));
+
+    await execute(
+      'UPDATE dynamic_fields SET bearing_JT_types = ? WHERE id = 1',
+      [JSON.stringify(updated)]
+    );
+
+    return getConfig();
+  } catch (error) {
+    console.error('Error in deleteBearingJTTypes:', error);
     throw error;
   }
 };

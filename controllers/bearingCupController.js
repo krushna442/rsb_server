@@ -4,8 +4,6 @@ import ExcelJS from 'exceljs';
 
 const parseUser = (req) => req.user?.username || req.user?.name || 'system';
 
-const JT_TYPES = ['14K JT', '17K JT', '225 JT', '325 JT', '490 JT', '590 JT', '590 JT IA', '620 JT'];
-
 // ── GET /api/bearing-cup-plans?date=YYYY-MM-DD ────────────────────────────────
 export const getPlanByDate = async (req, res) => {
   try {
@@ -15,13 +13,52 @@ export const getPlanByDate = async (req, res) => {
       `SELECT * FROM bearing_cup_plans WHERE plan_date = ? ORDER BY jt_type ASC, type ASC`,
       [date]
     );
-    // Build a structured map for the frontend
-    const planMap = {};
-    JT_TYPES.forEach(jt => { planMap[jt] = { G: null, NG: null }; });
-    rows.forEach(r => {
-      if (planMap[r.jt_type]) planMap[r.jt_type][r.type] = r;
+
+    // Fetch previous day's plan to compute carry overs (previous_diff)
+    const lastDateRow = await queryOne(
+      `SELECT plan_date FROM bearing_cup_plans WHERE plan_date < ? ORDER BY plan_date DESC LIMIT 1`,
+      [date]
+    );
+
+    let lastDayRows = [];
+    if (lastDateRow) {
+      lastDayRows = await query(
+        `SELECT * FROM bearing_cup_plans WHERE plan_date = ?`,
+        [lastDateRow.plan_date]
+      );
+    }
+
+    const carryOvers = [];
+    lastDayRows.forEach(lr => {
+      const diff = lr.total_qty - lr.target; // total products made - target
+      if (diff !== 0) {
+        const exists = rows.find(r => r.jt_type === lr.jt_type && r.type === lr.type);
+        if (exists) {
+          // Only set it if it's not already set in DB, or we can always override to keep it synced
+          exists.previous_diff = diff;
+        } else {
+          // If not in today's rows, create synthetic row
+          carryOvers.push({
+            id: null,
+            plan_date: date,
+            jt_type: lr.jt_type,
+            type: lr.type,
+            target: 0,
+            total_qty: 0,
+            shift1_qty: 0, shift2_qty: 0, shift3_qty: 0,
+            previous_diff: diff,
+            is_synthetic: true
+          });
+        }
+      }
     });
-    res.json({ success: true, data: rows, planMap, date });
+
+    const finalRows = [...rows, ...carryOvers].sort((a, b) => {
+      if (a.jt_type === b.jt_type) return a.type.localeCompare(b.type);
+      return a.jt_type.localeCompare(b.jt_type);
+    });
+
+    res.json({ success: true, data: finalRows, date });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -47,7 +84,7 @@ export const upsertPlan = async (req, res) => {
     }
     const updatedBy = parseUser(req);
     for (const row of planRows) {
-      const { jt_type, type, target = 0, total_qty = 0 } = row;
+      const { jt_type, type, target = 0, total_qty = 0, previous_diff = 0 } = row;
       if (!jt_type || !['G', 'NG'].includes(type)) continue;
 
       // Extract all shiftX_qty keys
@@ -61,8 +98,8 @@ export const upsertPlan = async (req, res) => {
       );
 
       if (existing) {
-        let updateSql = `UPDATE bearing_cup_plans SET target=?, total_qty=?, updated_by=?`;
-        const params = [target, total_qty, updatedBy];
+        let updateSql = `UPDATE bearing_cup_plans SET target=?, total_qty=?, previous_diff=?, updated_by=?`;
+        const params = [target, total_qty, previous_diff, updatedBy];
         
         shiftKeys.forEach(k => {
           updateSql += `, ${k}=?`;
@@ -73,9 +110,9 @@ export const upsertPlan = async (req, res) => {
         params.push(existing.id);
         await execute(updateSql, params);
       } else {
-        let cols = 'plan_date, jt_type, type, target, total_qty, created_by, updated_by';
-        let placeholders = '?, ?, ?, ?, ?, ?, ?';
-        const params = [date, jt_type, type, target, total_qty, updatedBy, updatedBy];
+        let cols = 'plan_date, jt_type, type, target, total_qty, previous_diff, created_by, updated_by';
+        let placeholders = '?, ?, ?, ?, ?, ?, ?, ?';
+        const params = [date, jt_type, type, target, total_qty, previous_diff, updatedBy, updatedBy];
         
         shiftKeys.forEach(k => {
           cols += `, ${k}`;
@@ -138,20 +175,20 @@ export const exportPlan = async (req, res) => {
     ws.getRow(1).height = 28;
 
     // Headers
-    const headers = ['JT Type', 'Type', 'Shift 1', 'Shift 2', 'Shift 3', 'Actual', 'Total Target'];
+    const headers = ['JT Type', 'Type', 'Previous Diff', 'Shift 1', 'Shift 2', 'Shift 3', 'Actual', 'Total Target'];
     const headerRow = ws.addRow(headers);
     headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
     headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF334155' } };
     headerRow.alignment = { horizontal: 'center' };
 
     ws.columns = [
-      { width: 20 }, { width: 10 }, { width: 12 }, { width: 12 },
+      { width: 20 }, { width: 10 }, { width: 15 }, { width: 12 }, { width: 12 },
       { width: 12 }, { width: 12 }, { width: 15 },
     ];
 
     rows.forEach(r => {
       const row = ws.addRow([
-        r.jt_type, r.type, r.shift1_qty, r.shift2_qty, r.shift3_qty, r.target, r.total_qty
+        r.jt_type, r.type, r.previous_diff || 0, r.shift1_qty, r.shift2_qty, r.shift3_qty, r.target, r.total_qty
       ]);
       
       const diff = r.total_qty - r.target;
@@ -162,13 +199,13 @@ export const exportPlan = async (req, res) => {
         cell.alignment = { horizontal: 'center' };
       });
       
-      // Highlight the diff column implicitly by showing total_qty logic
-      const targetCell = row.getCell(6); // Actual
-      const totalCell = row.getCell(7); // Total Target
-      if (r.target < r.total_qty) {
-        targetCell.font = { color: { argb: 'FFFF0000' }, bold: true };
-      } else if (r.target >= r.total_qty && r.total_qty > 0) {
-        targetCell.font = { color: { argb: 'FF008000' }, bold: true };
+      // Highlight the Actual column based on comparison with Total Target
+      const actualCell = row.getCell(7); // Actual
+      const totalCell = row.getCell(8); // Total Target
+      if (r.target > r.total_qty) {
+        actualCell.font = { color: { argb: 'FF008000' }, bold: true }; // Green if exceeded
+      } else if (r.target < r.total_qty && r.target > 0) {
+        actualCell.font = { color: { argb: 'FFFF0000' }, bold: true }; // Red if shortfall
       }
     });
 

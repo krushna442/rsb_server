@@ -125,6 +125,7 @@ export const scan = async (req, res) => {
       req.user?.name ?? null
     );
 
+
     res.status(201).json({ success: true, data });
   } catch (error) {
     console.error('scan error:', error);

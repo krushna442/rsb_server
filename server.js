@@ -34,7 +34,7 @@ const PORT = process.env.PORT || 5000;
 // ✅ CORS setup
 app.use(
   cors({
-    origin: ["http://192.168.1.4:3000","http://10.113.176.17:3000", "http://172.22.39.17:3000","http://10.99.45.17:3000","http://192.168.1.7:3000","http://10.99.45.17:3001","http://192.168.1.10:3000"],
+    origin: ["http://192.168.1.10:3000","http://10.250.71.17:3000", "http://172.22.39.17:3000","http://10.99.45.17:3000","http://192.168.1.7:3000","http://10.99.45.17:3001","http://192.168.1.10:3000"],
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
     allowedHeaders: ["Content-Type", "Authorization"],

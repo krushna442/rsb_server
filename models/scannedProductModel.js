@@ -1,5 +1,6 @@
 import { query, queryOne, execute } from '../db/db.js';
 import { parseScanText } from './parseScanText.js';
+import { fillPalletsFromScan } from '../controllers/despatchPlanController.js';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -378,16 +379,22 @@ if (field.masterKey === 'customer') {
     masterProduct.specification?.vendorCode ?? ''
   );
 
-  const expectedCustomer = reverseMap[parsed.vendorCode];
-  const actualCustomer = scanData.customer_name?.trim().toUpperCase();
+    const expectedCustomer = reverseMap[parsed.vendorCode];
+    
+    // If customer_name is missing, try to populate it from the vendor code in the barcode
+    if (!scanData.customer_name && expectedCustomer) {
+      scanData.customer_name = expectedCustomer;
+    }
 
-if (!expectedCustomer) {
-  mismatched.push('Customer');
-} else if (expectedCustomer !== actualCustomer) {
-  mismatched.push('Customer');
-} else {
-  matched.push('Customer');
-}
+    const actualCustomer = (scanData.customer_name || '').trim().toUpperCase();
+
+    if (!expectedCustomer) {
+      mismatched.push('Customer');
+    } else if (expectedCustomer !== actualCustomer) {
+      mismatched.push('Customer');
+    } else {
+      matched.push('Customer');
+    }
 
     // --- Rev No ---
     const masterRev = (masterProduct.revNo ?? masterSpec?.revNo ?? '').trim();
@@ -568,6 +575,15 @@ export const createScan = async (scanData, masterProduct, created_by = null) => 
         JSON.stringify(mismatched),
       ]
     );
+    
+    // ── Auto-fill despatch pallets on successful pass scan ──────────────────
+    if (status === 'pass') {
+      fillPalletsFromScan(
+        finalPartNo,
+        scanData.customer_name,
+        1 // each scan = 1 unit
+      ).catch(err => console.error('fillPalletsFromScan error in createScan:', err));
+    }
 
     return findScanById(result.insertId);
   } catch (error) {

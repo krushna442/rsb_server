@@ -8,10 +8,36 @@ const parseUser = (req) => req.user?.username || req.user?.name || 'system';
 // Helper: extract file path for a named field from req.files (fields upload)
 const getFilePath = (req, fieldName) => {
   if (!req.files) return null;
-  // .fields() gives { fieldName: [file, ...] }
   const arr = req.files[fieldName];
   if (arr && arr.length > 0) return `uploads/drawings/${arr[0].filename}`;
   return null;
+};
+
+const getCustomerPrefix = (customer) => {
+  if (!customer) return "";
+  const c = customer.toUpperCase();
+  if (c.includes("ALL ALW")) return "A";
+  if (c.includes("ALL PNR")) return "P";
+  if (c.includes("ALL HUSUR") || c.includes("ALL HOSUR")) return "H";
+  if (c.includes("IPLT")) return "I";
+  if (c.includes("SWITCH MOBILITY")) return "S";
+  if (c.includes("TML")) return "T";
+  if (c.includes("VECV")) return "V";
+  return "";
+};
+
+const generateSerialNumber = async (customer) => {
+  const prefix = getCustomerPrefix(customer);
+  if (!prefix) return null;
+
+  const row = await queryOne(
+    `SELECT MAX(CAST(SUBSTRING(serial_number, ${prefix.length + 1}) AS UNSIGNED)) as max_val 
+     FROM drawings WHERE serial_number LIKE ?`,
+    [`${prefix}%`]
+  );
+  
+  const nextVal = (row?.max_val || 0) + 1;
+  return `${prefix}${nextVal}`;
 };
 
 // ── GET /api/drawings  (latest only, or all with versions for admin) ───────────
@@ -77,7 +103,7 @@ export const addDrawing = async (req, res) => {
   try {
     const {
       drawing_number, shaft, joint, part_number, customer,
-      modification_number
+      modification_number, remarks
     } = req.body;
 
     if (!drawing_number) {
@@ -97,6 +123,14 @@ export const addDrawing = async (req, res) => {
       file_path = `uploads/drawings/${req.file.filename}`;
     }
 
+    // Check for chunked upload final path
+    if (req.body.file_path_from_chunks) {
+      file_path = req.body.file_path_from_chunks;
+    }
+    if (req.body.bom_path_from_chunks) {
+      bom_path = req.body.bom_path_from_chunks;
+    }
+
     const modification_date = new Date().toISOString().slice(0, 10);
     const createdBy = parseUser(req);
 
@@ -107,6 +141,7 @@ export const addDrawing = async (req, res) => {
     );
 
     let newVersion = 1;
+    let serial_number = null;
     if (existing) {
       // Mark old as not latest
       await execute(
@@ -114,18 +149,28 @@ export const addDrawing = async (req, res) => {
         [drawing_number]
       );
       newVersion = existing.version + 1;
+      // Inherit serial number from previous versions
+      const prev = await queryOne('SELECT serial_number FROM drawings WHERE drawing_number = ? LIMIT 1', [drawing_number]);
+      serial_number = prev?.serial_number;
+    } else {
+      serial_number = await generateSerialNumber(customer);
+    }
+
+    // RSB Logic: if customer is RSB, BOM is always null (though frontend should also handle it)
+    if (customer?.toUpperCase() === 'RSB') {
+      bom_path = null;
     }
 
     const result = await execute(
       `INSERT INTO drawings
-        (drawing_number, shaft, joint, part_number, customer,
+        (drawing_number, serial_number, shaft, joint, part_number, customer,
          modification_number, modification_date, bom, file_path,
-         version, is_latest, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+         version, is_latest, remarks, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
       [
-        drawing_number, shaft || null, joint || null, part_number || null,
+        drawing_number, serial_number, shaft || null, joint || null, part_number || null,
         customer || null, modification_number || null, modification_date,
-        bom_path || null, file_path, newVersion, createdBy
+        bom_path || null, file_path, newVersion, remarks || null, createdBy
       ]
     );
 
@@ -141,7 +186,7 @@ export const addDrawing = async (req, res) => {
 export const editDrawing = async (req, res) => {
   try {
     const { id } = req.params;
-    const { shaft, joint, part_number, customer, modification_number } = req.body;
+    const { shaft, joint, part_number, customer, modification_number, remarks } = req.body;
     const updatedBy = parseUser(req);
 
     // Fetch current row to keep existing file paths if no new file uploaded
@@ -160,13 +205,16 @@ export const editDrawing = async (req, res) => {
       file_path = `uploads/drawings/${req.file.filename}`;
     }
 
+    if (req.body.file_path_from_chunks) file_path = req.body.file_path_from_chunks;
+    if (req.body.bom_path_from_chunks)  bom_path = req.body.bom_path_from_chunks;
+
     await execute(
       `UPDATE drawings
        SET shaft=?, joint=?, part_number=?, customer=?, modification_number=?,
-           bom=?, file_path=?, updated_by=?
+           bom=?, file_path=?, remarks=?, updated_by=?
        WHERE id = ?`,
       [shaft || null, joint || null, part_number || null, customer || null,
-       modification_number || null, bom_path || null, file_path || null, updatedBy, id]
+       modification_number || null, bom_path || null, file_path || null, remarks || null, updatedBy, id]
     );
 
     const row = await queryOne('SELECT * FROM drawings WHERE id = ?', [id]);
@@ -180,7 +228,7 @@ export const editDrawing = async (req, res) => {
 export const addDrawingVersion = async (req, res) => {
   try {
     const { id } = req.params;
-    const { modification_number } = req.body;
+    const { modification_number, remarks } = req.body;
     const createdBy = parseUser(req);
 
     const existing = await queryOne('SELECT * FROM drawings WHERE id = ?', [id]);
@@ -197,6 +245,9 @@ export const addDrawingVersion = async (req, res) => {
     } else if (req.file) {
       file_path = `uploads/drawings/${req.file.filename}`;
     }
+
+    if (req.body.file_path_from_chunks) file_path = req.body.file_path_from_chunks;
+    if (req.body.bom_path_from_chunks)  bom_path = req.body.bom_path_from_chunks;
 
     const modification_date = new Date().toISOString().slice(0, 10);
 
@@ -215,15 +266,15 @@ export const addDrawingVersion = async (req, res) => {
 
     const result = await execute(
       `INSERT INTO drawings
-        (drawing_number, shaft, joint, part_number, customer,
+        (drawing_number, serial_number, shaft, joint, part_number, customer,
          modification_number, modification_date, bom, file_path,
-         version, parent_id, is_latest, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+         version, parent_id, is_latest, remarks, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
       [
-        existing.drawing_number, existing.shaft, existing.joint, existing.part_number,
+        existing.drawing_number, existing.serial_number, existing.shaft, existing.joint, existing.part_number,
         existing.customer, modification_number || existing.modification_number,
         modification_date, bom_path, file_path,
-        newVersion, existing.id, createdBy
+        newVersion, existing.id, remarks || null, createdBy
       ]
     );
 
@@ -268,6 +319,65 @@ export const deleteDrawing = async (req, res) => {
 
     res.json({ success: true, message: 'Drawing deleted' });
   } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ── POST /api/drawings/chunk (Chunked Upload) ─────────────────────────────
+export const uploadDrawingChunk = async (req, res) => {
+  try {
+    const uploadId = req.query.uploadId || req.body.uploadId;
+    const chunkIndex = req.query.chunkIndex || req.body.chunkIndex;
+    const { totalChunks, fileName, isBom } = req.body;
+
+    if (!req.file) return res.status(400).json({ success: false, message: 'Chunk file missing' });
+
+    const cIdx = parseInt(chunkIndex);
+    const tChunks = parseInt(totalChunks);
+
+    if (cIdx === tChunks - 1) {
+      const finalDir = 'uploads/drawings';
+      if (!fs.existsSync(finalDir)) fs.mkdirSync(finalDir, { recursive: true });
+      const finalName = `${Date.now()}_${fileName}`;
+      const finalPath = path.join(finalDir, finalName);
+      
+      const writeStream = fs.createWriteStream(finalPath);
+      const tempDir = `uploads/temp_chunks/${uploadId}`;
+      
+      const finishPromise = new Promise((resolve, reject) => {
+        writeStream.on('finish', resolve);
+        writeStream.on('error', reject);
+      });
+
+      const appendChunk = (index) => {
+        return new Promise((resolve, reject) => {
+          if (index >= tChunks) {
+            writeStream.end();
+            return resolve();
+          }
+          const chunkPath = path.join(tempDir, `chunk_${index}`);
+          if (!fs.existsSync(chunkPath)) return reject(new Error(`Missing chunk ${index}`));
+          
+          const readStream = fs.createReadStream(chunkPath);
+          readStream.pipe(writeStream, { end: false });
+          readStream.on('end', () => {
+            fs.unlinkSync(chunkPath);
+            resolve(appendChunk(index + 1));
+          });
+          readStream.on('error', reject);
+        });
+      };
+
+      await appendChunk(0);
+      await finishPromise;
+      fs.rmdirSync(tempDir);
+
+      return res.json({ success: true, message: 'Upload complete', file_path: `uploads/drawings/${finalName}` });
+    }
+
+    res.json({ success: true, message: 'Chunk uploaded' });
+  } catch (err) {
+    console.error('uploadDrawingChunk error:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 };

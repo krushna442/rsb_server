@@ -1,10 +1,11 @@
 // routes/drawingRoutes.js
 import express from 'express';
-import { uploadDrawingWithBom } from '../middlewares/uploadFiles.js';
+import { uploadDrawingWithBom, uploadSopVideoChunk } from '../middlewares/uploadFiles.js';
 import { protectRoute } from '../middlewares/authMiddleware.js';
 import {
   listDrawings, getDrawing, getDrawingVersions,
   addDrawing, editDrawing, addDrawingVersion, deleteDrawing,
+  uploadDrawingChunk,
 } from '../controllers/drawingController.js';
 
 const router = express.Router();
@@ -15,10 +16,14 @@ const uploadFields = uploadDrawingWithBom.fields([
   { name: 'bom_file', maxCount: 1 },
 ]);
 
+// ── Chunked upload MUST be before /:id routes ──────────────────────────────
+router.post('/upload-chunk', uploadSopVideoChunk.single('chunk'), uploadDrawingChunk);
+
+// ── Standard CRUD routes ───────────────────────────────────────────────────
 router.get('/',                 listDrawings);
+router.post('/',                uploadFields, addDrawing);
 router.get('/:id',              getDrawing);
 router.get('/:id/versions',     getDrawingVersions);
-router.post('/',                uploadFields, addDrawing);
 router.put('/:id',              uploadFields, editDrawing);
 router.post('/:id/new-version', uploadFields, addDrawingVersion);
 router.delete('/:id',           deleteDrawing);

@@ -13,7 +13,7 @@ export const listControlPlans = async (req, res) => {
     const { active } = req.query; // ?active=1 filters inactive
     let sql = `SELECT * FROM control_plans WHERE is_latest = 1`;
     if (active === '1') sql += ` AND is_active = 1`;
-    sql += ` ORDER BY line ASC, name ASC`;
+    sql += ` ORDER BY line ASC, sequence_number ASC, name ASC`;
     const rows = await query(sql);
     let versionMap = {};
     if (isAdmin) {
@@ -52,7 +52,7 @@ export const getControlPlanVersions = async (req, res) => {
 
 export const addControlPlan = async (req, res) => {
   try {
-    const { name, line, rev_no, rev_date, language } = req.body;
+    const { name, line, rev_no, rev_date, language, sequence_number } = req.body;
     if (!name) return res.status(400).json({ success: false, message: 'name is required' });
     const file_path = req.file ? `uploads/control-plans/${req.file.filename}` : null;
     const createdBy = parseUser(req);
@@ -65,8 +65,8 @@ export const addControlPlan = async (req, res) => {
       newVersion = existing.version + 1;
     }
     const result = await execute(
-      `INSERT INTO control_plans (name, line, rev_no, rev_date, file_path, language, version, is_latest, is_active, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?)`,
-      [name, validLine, rev_no || null, rev_date || null, file_path, validLang, newVersion, createdBy]
+      `INSERT INTO control_plans (name, line, rev_no, rev_date, file_path, language, version, is_latest, is_active, sequence_number, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?)`,
+      [name, validLine, rev_no || null, rev_date || null, file_path, validLang, newVersion, sequence_number || 0, createdBy]
     );
     const newRow = await queryOne('SELECT * FROM control_plans WHERE id = ?', [result.insertId]);
     res.status(201).json({ success: true, data: newRow });
@@ -78,7 +78,7 @@ export const addControlPlan = async (req, res) => {
 export const editControlPlan = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, line, rev_no, rev_date, language, is_active } = req.body;
+    const { name, line, rev_no, rev_date, language, is_active, sequence_number } = req.body;
     const updatedBy = parseUser(req);
     const updates = [];
     const vals = [];
@@ -88,6 +88,7 @@ export const editControlPlan = async (req, res) => {
     if (rev_date !== undefined)  { updates.push('rev_date=?');   vals.push(rev_date); }
     if (['English','Hindi'].includes(language)) { updates.push('language=?'); vals.push(language); }
     if (is_active !== undefined) { updates.push('is_active=?');  vals.push(is_active ? 1 : 0); }
+    if (sequence_number !== undefined) { updates.push('sequence_number=?'); vals.push(sequence_number); }
     updates.push('updated_by=?'); vals.push(updatedBy);
     vals.push(id);
     await execute(`UPDATE control_plans SET ${updates.join(',')} WHERE id=?`, vals);
@@ -110,8 +111,8 @@ export const addControlPlanVersion = async (req, res) => {
     const maxVer = await queryOne('SELECT MAX(version) as mv FROM control_plans WHERE name = ?', [existing.name]);
     const newVersion = (maxVer?.mv || 0) + 1;
     const result = await execute(
-      `INSERT INTO control_plans (name, line, rev_no, rev_date, file_path, language, version, parent_id, is_latest, is_active, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?)`,
-      [existing.name, existing.line, rev_no || existing.rev_no, rev_date || new Date().toISOString().slice(0, 10), file_path || existing.file_path, existing.language, newVersion, existing.id, createdBy]
+      `INSERT INTO control_plans (name, line, rev_no, rev_date, file_path, language, version, parent_id, is_latest, is_active, sequence_number, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?)`,
+      [existing.name, existing.line, rev_no || existing.rev_no, rev_date || new Date().toISOString().slice(0, 10), file_path || existing.file_path, existing.language, newVersion, existing.id, existing.sequence_number || 0, createdBy]
     );
     const newRow = await queryOne('SELECT * FROM control_plans WHERE id = ?', [result.insertId]);
     res.status(201).json({ success: true, data: newRow });

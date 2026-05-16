@@ -1,3 +1,4 @@
+import { json } from 'express';
 import { query } from './db.js';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -32,6 +33,7 @@ async function createUsersTable() {
         nav_array           JSON DEFAULT ('[]'),
         profile_image       VARCHAR(255) DEFAULT NULL,
         is_active           TINYINT(1) DEFAULT 1,
+        despatch_mail       TINYINT(1) DEFAULT 0,
         created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         show_image          VARCHAR(10) DEFAULT 'true',
@@ -113,6 +115,7 @@ async function createDynamicFieldsTable() {
         customer_names              JSON NOT NULL DEFAULT ('[]'),
         standard_names              JSON NOT NULL DEFAULT ('[]'),
         control_plan_names          JSON NOT NULL DEFAULT ('[]'),
+        bearing_JT_types            JSON NOT NULL DEFAULT ('[]'),
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
@@ -122,8 +125,8 @@ async function createDynamicFieldsTable() {
     if (!existing.length) {
       await query(
         `INSERT INTO dynamic_fields
-          (product_fields, approval_fields, quality_verification_fields, important_fields, documents,customer_names,standard_names,control_plan_names)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          (product_fields, approval_fields, quality_verification_fields, important_fields, documents,customer_names,standard_names,control_plan_names, bearing_JT_types)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           // ── product_fields (unchanged) ──────────────────────────────────────
           JSON.stringify([
@@ -445,6 +448,7 @@ async function createDrawingsTable() {
         version           INT UNSIGNED DEFAULT 1,
         parent_id         INT UNSIGNED NULL,
         is_latest         TINYINT(1) DEFAULT 1,
+        remarks           TEXT,
         created_by        VARCHAR(100),
         updated_by        VARCHAR(100),
         created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -479,6 +483,7 @@ async function createStandardsTable() {
         version       INT UNSIGNED DEFAULT 1,
         parent_id     INT UNSIGNED NULL,
         is_latest     TINYINT(1) DEFAULT 1,
+        remarks       TEXT,
         created_by    VARCHAR(100),
         updated_by    VARCHAR(100),
         created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -513,6 +518,7 @@ async function createControlPlansTable() {
         version     INT UNSIGNED DEFAULT 1,
         parent_id   INT UNSIGNED NULL,
         is_latest   TINYINT(1) DEFAULT 1,
+        sequence_number INT DEFAULT 0,
         created_by  VARCHAR(100),
         updated_by  VARCHAR(100),
         created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -545,6 +551,7 @@ async function createBearingCupPlansTable() {
         shift3_qty  INT DEFAULT 0,
         target      INT DEFAULT 0,
         total_qty   INT DEFAULT 0,
+        previous_diff INT DEFAULT 0,
         created_by  VARCHAR(100),
         updated_by  VARCHAR(100),
         created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -648,6 +655,7 @@ async function createDespatchPlanTables() {
         plan_id        INT UNSIGNED NOT NULL,
         vehicle_label  VARCHAR(10) NOT NULL,
         customer       VARCHAR(255),
+        priority_number INT DEFAULT NULL,
         is_completed   TINYINT(1) DEFAULT 0,
         completed_at   DATETIME DEFAULT NULL,
         INDEX idx_plan (plan_id)
@@ -661,6 +669,7 @@ async function createDespatchPlanTables() {
         part_number    VARCHAR(100) DEFAULT NULL,
         tube_length    VARCHAR(50) DEFAULT NULL,
         target_qty     INT DEFAULT 0,
+        filled_quantity INT DEFAULT 0,
         scanned_qty    INT DEFAULT 0,
         is_fulfilled   TINYINT(1) DEFAULT 0,
         INDEX idx_vehicle (vehicle_id)
@@ -719,17 +728,13 @@ export async function runBootstrap() {
     await createSkillMatrixTables();
     await createDespatchPlanTables();
     await createSopVideosTable();
-
-    // // Migrations: add new columns to existing tables safely
-    // try {
-    //   await query(`ALTER TABLE despatch_pallets ADD COLUMN part_number VARCHAR(100) DEFAULT NULL`);
-    // } catch (_) { /* already exists — safe to ignore */ }
-    // try {
-    //   await query(`ALTER TABLE despatch_pallets ADD COLUMN tube_length VARCHAR(50) DEFAULT NULL`);
-    // } catch (_) { /* already exists — safe to ignore */ }
-    // try {
-    //   await query(`ALTER TABLE despatch_pallets MODIFY COLUMN pallet_label VARCHAR(50) NOT NULL`);
-    // } catch (_) { /* ok */ }
+    
+    // // New Migrations
+    // try { await query(`ALTER TABLE drawings ADD COLUMN remarks TEXT`); } catch (_) {}
+    // try { await query(`ALTER TABLE standards ADD COLUMN remarks TEXT`); } catch (_) {}
+    // try { await query(`ALTER TABLE control_plans ADD COLUMN sequence_number INT DEFAULT 0`); } catch (_) {}
+    // try { await query(`ALTER TABLE dynamic_fields ADD COLUMN bearing_JT_types JSON NOT NULL DEFAULT ('[]')`); } catch (_) {}
+    // try { await query(`ALTER TABLE bearing_cup_plans ADD COLUMN previous_diff INT DEFAULT 0`); } catch (_) {}
 
     // // Bearing Cup extra shift columns migration
     // for (let i = 4; i <= 6; i++) {
@@ -737,6 +742,12 @@ export async function runBootstrap() {
     //     await query(`ALTER TABLE bearing_cup_plans ADD COLUMN shift${i}_qty INT DEFAULT 0`);
     //   } catch (_) { /* already exists — safe to ignore */ }
     // }
+
+    // Despatch Plan Migrations
+    // try { await query(`ALTER TABLE users ADD COLUMN despatch_mail TINYINT(1) DEFAULT 0`); } catch (_) {}
+    // try { await query(`ALTER TABLE drawings ADD COLUMN serial_number VARCHAR(100) AFTER customer`); } catch (_) {}
+    // try { await query(`ALTER TABLE despatch_vehicles ADD COLUMN priority_number INT DEFAULT NULL`); } catch (_) {}
+    // try { await query(`ALTER TABLE despatch_pallets ADD COLUMN filled_quantity INT DEFAULT 0 AFTER target_qty`); } catch (_) {}
 
     console.log('🎉 Bootstrap completed successfully');
     return true;
