@@ -15,15 +15,17 @@ const getFilePath = (req, fieldName) => {
 
 const getCustomerPrefix = (customer) => {
   if (!customer) return "";
-  const c = customer.toUpperCase();
-  if (c.includes("ALL ALW")) return "A";
-  if (c.includes("ALL PNR")) return "P";
-  if (c.includes("ALL HUSUR") || c.includes("ALL HOSUR")) return "H";
-  if (c.includes("IPLT")) return "I";
-  if (c.includes("SWITCH MOBILITY")) return "S";
-  if (c.includes("TML")) return "T";
-  if (c.includes("VECV")) return "V";
-  return "";
+  const c = customer.toUpperCase().trim();
+
+  const words = c.split(/\s+/).filter(Boolean);
+
+  if (words.length === 1) {
+    // Single word: take first 1 letters  e.g. "VECV" → "V", "TML" → "T", "ASL" → "A"
+    return words[0].slice(0, 1);
+  } else {
+    // Multi-word: first letter of each word  e.g. "ALL ALW" → "AA", "SWITCH MOBILITY" → "SM"
+    return words.map(w => w[0]).join("");
+  }
 };
 
 const generateSerialNumber = async (customer) => {
@@ -48,7 +50,7 @@ export const listDrawings = async (req, res) => {
 
     // Always return latest records; grouped by customer in frontend
     const rows = await query(
-      `SELECT * FROM drawings WHERE is_latest = 1 ORDER BY customer ASC, drawing_number ASC`
+      `SELECT * FROM drawings WHERE is_latest = 1 ORDER BY customer ASC, LENGTH(serial_number) ASC, serial_number ASC`
     );
 
     // For admin, also send version metadata per drawing_number
@@ -378,6 +380,28 @@ export const uploadDrawingChunk = async (req, res) => {
     res.json({ success: true, message: 'Chunk uploaded' });
   } catch (err) {
     console.error('uploadDrawingChunk error:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+export const deleteDrawingsByCustomer = async (req, res) => {
+  try {
+    const { customer } = req.params;
+    // Find all files to delete from disk
+    const rows = await query('SELECT file_path, bom FROM drawings WHERE customer = ?', [customer]);
+    for (const row of rows) {
+      if (row.file_path) {
+        const fullPath = path.join(process.cwd(), row.file_path);
+        if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+      }
+      if (row.bom) {
+        const bomPath = path.join(process.cwd(), row.bom);
+        if (fs.existsSync(bomPath)) fs.unlinkSync(bomPath);
+      }
+    }
+    await execute('DELETE FROM drawings WHERE customer = ?', [customer]);
+    res.json({ success: true, message: `All drawings for customer ${customer} deleted` });
+  } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 };

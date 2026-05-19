@@ -5,7 +5,7 @@ import { protectRoute } from '../middlewares/authMiddleware.js';
 import {
   listStandards, getStandard, getStandardVersions,
   addStandard, editStandard, addStandardVersion, deleteStandard,
-  uploadStandardChunk,
+  uploadStandardChunk, deleteStandardsByCategory,
 } from '../controllers/standardController.js';
 
 const router = express.Router();
@@ -14,6 +14,7 @@ const router = express.Router();
 router.post('/upload-chunk', uploadSopVideoChunk.single('chunk'), uploadStandardChunk);
 
 // ── Standard CRUD routes ───────────────────────────────────────────────────
+router.delete('/category/:category', protectRoute, deleteStandardsByCategory);
 router.get('/',                  protectRoute, listStandards);
 router.post('/',                 protectRoute, uploadStandard.single('file'), addStandard);
 router.get('/:id',               protectRoute, getStandard);

@@ -5,7 +5,7 @@ import { protectRoute } from '../middlewares/authMiddleware.js';
 import {
   listDrawings, getDrawing, getDrawingVersions,
   addDrawing, editDrawing, addDrawingVersion, deleteDrawing,
-  uploadDrawingChunk,
+  uploadDrawingChunk, deleteDrawingsByCustomer,
 } from '../controllers/drawingController.js';
 
 const router = express.Router();
@@ -20,6 +20,7 @@ const uploadFields = uploadDrawingWithBom.fields([
 router.post('/upload-chunk', uploadSopVideoChunk.single('chunk'), uploadDrawingChunk);
 
 // ── Standard CRUD routes ───────────────────────────────────────────────────
+router.delete('/customer/:customer', deleteDrawingsByCustomer);
 router.get('/',                 listDrawings);
 router.post('/',                uploadFields, addDrawing);
 router.get('/:id',              getDrawing);

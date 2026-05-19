@@ -9,7 +9,7 @@ export const listStandards = async (req, res) => {
   try {
     const role = req.user?.role || 'viewer';
     const isAdmin = ['admin', 'super admin'].includes(role);
-    const rows = await query(`SELECT * FROM standards WHERE is_latest = 1 ORDER BY category ASC, standard_no ASC`);
+    const rows = await query(`SELECT * FROM standards WHERE is_latest = 1 ORDER BY category ASC, LENGTH(standard_no) ASC, standard_no ASC`);
     let versionMap = {};
     if (isAdmin) {
       const allRows = await query(`SELECT id, standard_no, version, rev_number, rev_date, created_at FROM standards ORDER BY standard_no ASC, version ASC`);
@@ -194,6 +194,24 @@ export const uploadStandardChunk = async (req, res) => {
     res.json({ success: true, message: 'Chunk uploaded' });
   } catch (err) {
     console.error('uploadStandardChunk error:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+export const deleteStandardsByCategory = async (req, res) => {
+  try {
+    const { category } = req.params;
+    // Find all files to delete from disk
+    const rows = await query('SELECT file_path FROM standards WHERE category = ?', [category]);
+    for (const row of rows) {
+      if (row.file_path) {
+        const fullPath = path.join(process.cwd(), row.file_path);
+        if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+      }
+    }
+    await execute('DELETE FROM standards WHERE category = ?', [category]);
+    res.json({ success: true, message: `All standards for category ${category} deleted` });
+  } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 };

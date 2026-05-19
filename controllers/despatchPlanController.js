@@ -7,6 +7,9 @@ import path from 'path';
 import os from 'os';
 import fs from 'fs';
 
+// ── Product type exclusion list ────────────────────────────────────────────────
+const EXCLUDED_PRODUCT_TYPES = ['F1', 'F5'];
+
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 function getPlanDate(d = new Date()) {
@@ -26,14 +29,16 @@ function buildTransporter() {
   });
 }
 
+/** Fetch emails of users with despatch_mail = 1 */
 async function getDespatchEmails() {
   return await findDespatchMailEmails();
 }
 
-/** Fetch full plan (vehicles + pallets) ordered by priority */
+/** Fetch full plan (vehicles + pallets) for a given plan_date */
 async function fetchFullPlan(plan_date) {
   const [plan] = await query(`SELECT * FROM despatch_plans WHERE plan_date = ?`, [plan_date]);
   if (!plan) return null;
+  // Order by priority_number ASC NULLS LAST, then vehicle_label ASC
   const vehicles = await query(
     `SELECT * FROM despatch_vehicles WHERE plan_id = ?
      ORDER BY CASE WHEN priority_number IS NULL THEN 1 ELSE 0 END, priority_number ASC, vehicle_label ASC`,
@@ -53,49 +58,59 @@ function isVehicleFulfilled(vehicle) {
   return vehicle.pallets.every(p => p.is_fulfilled);
 }
 
-// ── Email: send per newly-completed vehicle ───────────────────────────────────
-
-async function sendVehicleCompletionMail(vehicle, plan_date) {
+/** Send completion mail for all completed vehicles on the day */
+async function sendCompletionMail(allCompletedVehicles, plan_date) {
   const emails = await getDespatchEmails();
   if (!emails.length) return;
 
-  const rows = (vehicle.pallets || []).map(p => `
+  const rows = allCompletedVehicles.flatMap(v =>
+    v.pallets.map(p => ({
+      vehicle: v.vehicle_label,
+      customer: v.customer || '—',
+      pallet: p.pallet_label,
+      partNumber: p.part_number || '—',
+      tubeLength: p.tube_length || '—',
+      target: p.target_qty,
+      filled: p.filled_quantity ?? p.scanned_qty,
+    }))
+  );
+
+  const tableRows = rows.map(r => `
     <tr style="border-bottom:1px solid #ddd;">
-      <td style="padding:8px 12px;">${p.part_number || '—'}</td>
-      <td style="padding:8px 12px;">${p.tube_length || '—'}</td>
-      <td style="padding:8px 12px;">${p.pallet_label || '—'}</td>
-      <td style="padding:8px 12px;text-align:right;">${p.target_qty}</td>
-      <td style="padding:8px 12px;text-align:right;background:${(p.filled_quantity||0) >= p.target_qty ? '#d4edda' : '#fff3cd'}">
-        ${p.filled_quantity ?? 0}
-      </td>
-      <td style="padding:8px 12px;text-align:center;">${p.is_fulfilled ? '✅ Yes' : '⏳ No'}</td>
+      <td style="padding:8px 12px;background:#d4edda">${r.vehicle}</td>
+      <td style="padding:8px 12px">${r.customer}</td>
+      <td style="padding:8px 12px">${r.pallet}</td>
+      <td style="padding:8px 12px">${r.partNumber}</td>
+      <td style="padding:8px 12px">${r.tubeLength}</td>
+      <td style="padding:8px 12px;text-align:right">${r.target}</td>
+      <td style="padding:8px 12px;text-align:right;background:${r.filled >= r.target ? '#d4edda' : '#fff3cd'}">${r.filled}</td>
     </tr>`).join('');
 
   const html = `
-    <div style="font-family:Arial,sans-serif;max-width:800px;margin:0 auto;">
+    <div style="font-family:Arial,sans-serif;max-width:900px;margin:0 auto;">
       <h2 style="background:#1e293b;color:white;padding:16px 20px;margin:0;border-radius:8px 8px 0 0;">
-        🚛 Vehicle Completed — ${vehicle.vehicle_label}
+        🚛 Despatch Plan — Vehicle Completion Report
       </h2>
       <p style="padding:12px 20px;background:#f8fafc;margin:0;color:#475569;">
         Date: <strong>${plan_date}</strong> &nbsp;|&nbsp;
-        Vehicle: <strong>${vehicle.vehicle_label}</strong> &nbsp;|&nbsp;
-        Customer: <strong>${vehicle.customer || '—'}</strong>
-        ${vehicle.priority_number != null ? `&nbsp;|&nbsp; Priority: <strong>P${vehicle.priority_number}</strong>` : ''}
+        Completed vehicles: <strong>${allCompletedVehicles.map(v => v.vehicle_label).join(', ')}</strong>
       </p>
       <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;">
         <thead>
           <tr style="background:#334155;color:white;">
-            <th style="padding:10px 12px;text-align:left;">Part Number</th>
-            <th style="padding:10px 12px;text-align:left;">Tube Length</th>
-            <th style="padding:10px 12px;text-align:left;">Pallet</th>
-            <th style="padding:10px 12px;text-align:right;">Target Qty</th>
-            <th style="padding:10px 12px;text-align:right;">Filled Qty</th>
-            <th style="padding:10px 12px;text-align:center;">Fulfilled</th>
+            <th style="padding:10px 12px;text-align:left">Vehicle</th>
+            <th style="padding:10px 12px;text-align:left">Customer</th>
+            <th style="padding:10px 12px;text-align:left">Pallet</th>
+            <th style="padding:10px 12px;text-align:left">Part Number</th>
+            <th style="padding:10px 12px;text-align:left">Tube Length</th>
+            <th style="padding:10px 12px;text-align:right">Target Qty</th>
+            <th style="padding:10px 12px;text-align:right">Filled Qty</th>
           </tr>
         </thead>
-        <tbody>${rows}</tbody>
+        <tbody>${tableRows}</tbody>
       </table>
       <p style="padding:12px 20px;font-size:12px;color:#94a3b8;">
+        Green = fulfilled &nbsp;|&nbsp; Yellow = incomplete<br/>
         Generated at ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}
       </p>
     </div>`;
@@ -104,7 +119,7 @@ async function sendVehicleCompletionMail(vehicle, plan_date) {
   await transporter.sendMail({
     from: `"RSB Despatch" <${process.env.SMTP_USER}>`,
     to: emails.join(','),
-    subject: `✅ ${vehicle.vehicle_label} (${vehicle.customer || ''}) Completed — ${plan_date}`,
+    subject: `Despatch Report — ${allCompletedVehicles.map(v => v.vehicle_label).join(', ')} Completed (${plan_date})`,
     html,
   });
 }
@@ -112,30 +127,42 @@ async function sendVehicleCompletionMail(vehicle, plan_date) {
 // ── Core scan-fill logic ──────────────────────────────────────────────────────
 
 /**
- * On each successful scan:
- *  1. Find today's plan, ordered by priority_number ASC NULLS LAST
- *  2. Fill matching pallet (customer + part_number) up to target_qty
- *  3. NEVER exceed target_qty — stop filling that pallet when full
- *  4. When all pallets of a vehicle are fulfilled, mark vehicle complete & send email
+ * Distributes scan counts into pallets respecting:
+ *  1. Priority number (lower = higher priority, NULL = last)
+ *  2. Normal vehicle label order if no priority
+ *  3. Pending (incomplete) vehicles from previous day are filled first
+ *
+ * Increments filled_quantity on each pallet row in the DB.
+ * Returns list of newly-completed vehicle labels.
  */
-export async function fillPalletsFromScan(part_no, customer_name, scan_qty = 1) {
+export async function fillPalletsFromScan(part_no, customer_name, scan_qty = 1, product_type = null) {
   try {
+    // Exclude F1 and F5 product types from despatch count
+    if (product_type && EXCLUDED_PRODUCT_TYPES.includes((product_type || '').trim().toUpperCase())) {
+      console.log(`[fillPalletsFromScan] Skipping scan for excluded product_type: ${product_type}`);
+      return [];
+    }
     const today = getPlanDate();
+
+    // Gather today's plan + previous day's pending vehicles
     const plan = await fetchFullPlan(today);
 
-    // Also check previous day pending
+    // Previous day pending vehicles
     const prevDate = new Date(today + 'T00:00:00');
     prevDate.setDate(prevDate.getDate() - 1);
-    const prevPlan = await fetchFullPlan(prevDate.toISOString().slice(0, 10));
-    const prevPending = prevPlan ? prevPlan.vehicles.filter(v => !v.is_completed) : [];
+    const prevDateStr = prevDate.toISOString().slice(0, 10);
+    const prevPlan = await fetchFullPlan(prevDateStr);
+    const prevPendingVehicles = prevPlan
+      ? prevPlan.vehicles.filter(v => !v.is_completed)
+      : [];
 
-    if (!plan && prevPending.length === 0) return [];
+    if (!plan && prevPendingVehicles.length === 0) return [];
 
+    // Build ordered vehicle list: previous pending first, then today's by priority
     const todayVehicles = plan ? plan.vehicles : [];
-    // Previous pending vehicles first, then today's sorted by priority
-    const orderedVehicles = [...prevPending, ...todayVehicles];
+    const orderedVehicles = [...prevPendingVehicles, ...todayVehicles];
 
-    const normalPn   = (part_no       || '').trim().toUpperCase();
+    const normalPn = (part_no || '').trim().toUpperCase();
     const normalCust = (customer_name || '').trim().toUpperCase();
 
     let remaining = scan_qty;
@@ -152,26 +179,24 @@ export async function fillPalletsFromScan(part_no, customer_name, scan_qty = 1) 
         if (pPn !== normalPn) continue;
 
         const currentFilled = parseInt(p.filled_quantity) || 0;
-        const target        = parseInt(p.target_qty) || 0;
+        const target = parseInt(p.target_qty) || 0;
+        if (currentFilled >= target && target > 0) continue; // already full
 
-        // Already full — skip completely, don't overflow
-        if (target > 0 && currentFilled >= target) continue;
-
-        const canTake  = target > 0 ? target - currentFilled : remaining;
-        const take     = Math.min(remaining, canTake);
-        const newFilled    = currentFilled + take;
-        const isFulfilled  = target > 0 && newFilled >= target ? 1 : 0;
+        const canTake = target > 0 ? target - currentFilled : remaining;
+        const take = Math.min(remaining, canTake);
+        const newFilled = currentFilled + take;
+        const isFulfilled = target > 0 && newFilled >= target ? 1 : 0;
 
         await query(
           `UPDATE despatch_pallets SET filled_quantity = ?, is_fulfilled = ? WHERE id = ?`,
           [newFilled, isFulfilled, p.id]
         );
         p.filled_quantity = newFilled;
-        p.is_fulfilled    = isFulfilled;
+        p.is_fulfilled = isFulfilled;
         remaining -= take;
       }
 
-      // Re-check from DB whether vehicle is now complete
+      // Check if vehicle is now fully done
       const freshPallets = await query(
         `SELECT * FROM despatch_pallets WHERE vehicle_id = ?`, [v.id]
       );
@@ -180,19 +205,172 @@ export async function fillPalletsFromScan(part_no, customer_name, scan_qty = 1) 
         await query(
           `UPDATE despatch_vehicles SET is_completed = 1, completed_at = NOW() WHERE id = ?`, [v.id]
         );
-        v.is_completed = 1;
-        v.pallets = freshPallets; // use fresh data for email
         newlyCompletedVehicleIds.push(v.id);
-
-        // Send individual vehicle completion mail
-        sendVehicleCompletionMail(v, today).catch(console.error);
       }
+    }
+
+    // Send mail for any newly completed vehicles
+    if (newlyCompletedVehicleIds.length > 0) {
+      // Gather all completed vehicles for the day (for the mail body)
+      const allCompletedToday = [];
+      for (const planToCheck of [plan, prevPlan].filter(Boolean)) {
+        const freshVehicles = await query(
+          `SELECT * FROM despatch_vehicles WHERE plan_id = ? AND is_completed = 1`, [planToCheck.id]
+        );
+        for (const fv of freshVehicles) {
+          fv.pallets = await query(`SELECT * FROM despatch_pallets WHERE vehicle_id = ?`, [fv.id]);
+          allCompletedToday.push(fv);
+        }
+      }
+      sendCompletionMail(allCompletedToday, today).catch(console.error);
     }
 
     return newlyCompletedVehicleIds;
   } catch (err) {
     console.error('fillPalletsFromScan error:', err);
     return [];
+  }
+}
+
+// ── Graph / Analytics ─────────────────────────────────────────────────────────
+
+/** GET /api/despatch-plan/graph?from=YYYY-MM-DD&to=YYYY-MM-DD */
+export async function getDespatchGraphData(req, res) {
+  try {
+    const { from, to } = req.query;
+    if (!from || !to) return res.status(400).json({ success: false, message: 'from and to query params are required' });
+
+    // Vehicles per day
+    const vehiclesPerDay = await query(
+      `SELECT dp.plan_date, COUNT(dv.id) AS total_vehicles,
+              SUM(dv.is_completed) AS completed_vehicles
+       FROM despatch_plans dp
+       LEFT JOIN despatch_vehicles dv ON dv.plan_id = dp.id
+       WHERE dp.plan_date BETWEEN ? AND ?
+       GROUP BY dp.plan_date
+       ORDER BY dp.plan_date ASC`,
+      [from, to]
+    );
+
+    // Part number wise total despatched pieces (from fulfilled pallets)
+    const partNumberWise = await query(
+      `SELECT dp2.part_number,
+              SUM(dp2.filled_quantity) AS total_despatched,
+              SUM(dp2.target_qty) AS total_target
+       FROM despatch_plans dpln
+       JOIN despatch_vehicles dv ON dv.plan_id = dpln.id
+       JOIN despatch_pallets dp2 ON dp2.vehicle_id = dv.id
+       WHERE dpln.plan_date BETWEEN ? AND ?
+         AND dp2.part_number IS NOT NULL AND dp2.part_number != ''
+       GROUP BY dp2.part_number
+       ORDER BY total_despatched DESC`,
+      [from, to]
+    );
+
+    res.json({ success: true, vehiclesPerDay, partNumberWise });
+  } catch (err) {
+    console.error('getDespatchGraphData error:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+}
+
+/** GET /api/despatch-plan/export-range?from=YYYY-MM-DD&to=YYYY-MM-DD
+ *  Returns an Excel workbook with one sheet per date containing despatch data.
+ */
+export async function exportDateRangePlan(req, res) {
+  try {
+    const { from, to } = req.query;
+    if (!from || !to) return res.status(400).json({ success: false, message: 'from and to are required' });
+
+    // Get all plan dates in range
+    const dates = await query(
+      `SELECT DISTINCT plan_date FROM despatch_plans WHERE plan_date BETWEEN ? AND ? ORDER BY plan_date ASC`,
+      [from, to]
+    );
+
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'RSB Despatch System';
+    wb.created = new Date();
+
+    if (dates.length === 0) {
+      const ws = wb.addWorksheet('No Data');
+      ws.addRow([`No despatch data found between ${from} and ${to}`]);
+    } else {
+      for (const { plan_date } of dates) {
+        const dateStr = typeof plan_date === 'string' ? plan_date : new Date(plan_date).toISOString().slice(0, 10);
+        const plan = await fetchFullPlan(dateStr);
+        const ws = wb.addWorksheet(dateStr);
+
+        if (!plan || !plan.vehicles || plan.vehicles.length === 0) {
+          ws.addRow([`No plan data for ${dateStr}`]);
+          continue;
+        }
+
+        const vehicles = plan.vehicles;
+
+        // Header row 1: Vehicle labels spanning 4 cols each
+        const row1Data = [];
+        const row2Data = [];
+        vehicles.forEach(v => {
+          const vLabel = `${v.vehicle_label}${v.priority_number != null ? ` (P${v.priority_number})` : ''}`;
+          row1Data.push('Part Number', 'Tube Length', vLabel, '');
+          row2Data.push('', '', v.customer || '', 'Pallet');
+        });
+
+        const hRow1 = ws.addRow(row1Data);
+        const hRow2 = ws.addRow(row2Data);
+
+        [hRow1, hRow2].forEach(r => {
+          r.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+          r.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
+          r.alignment = { horizontal: 'center', wrapText: true };
+        });
+
+        const maxPallets = Math.max(...vehicles.map(v => v.pallets.length), 0);
+        for (let i = 0; i < maxPallets; i++) {
+          const rowData = [];
+          for (const v of vehicles) {
+            const p = v.pallets[i];
+            if (p) {
+              rowData.push(p.part_number || '', p.tube_length || '', `${p.filled_quantity ?? 0}/${p.target_qty}`, p.pallet_label || '');
+            } else {
+              rowData.push('', '', '', '');
+            }
+          }
+          const dataRow = ws.addRow(rowData);
+          dataRow.eachCell((cell, colNum) => {
+            const vIdx = Math.floor((colNum - 1) / 4);
+            const v = vehicles[vIdx];
+            const p = v ? v.pallets[i] : null;
+            if (v && p) {
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: v.is_completed ? 'FFD4EDDA' : p.is_fulfilled ? 'FFD4EDDA' : 'FFFFF3CD' } };
+            }
+            cell.border = { top:{style:'thin'}, bottom:{style:'thin'}, left:{style:'thin'}, right:{style:'thin'} };
+            cell.alignment = { horizontal: 'center' };
+          });
+        }
+
+        vehicles.forEach((_, vi) => {
+          const start = 1 + vi * 4;
+          ws.getColumn(start).width = 18;
+          ws.getColumn(start + 1).width = 14;
+          ws.getColumn(start + 2).width = 12;
+          ws.getColumn(start + 3).width = 10;
+        });
+
+        // Summary row
+        const summaryRow = ws.addRow([`${vehicles.filter(v => v.is_completed).length}/${vehicles.length} vehicles complete`]);
+        summaryRow.font = { bold: true, italic: true, color: { argb: 'FF475569' } };
+      }
+    }
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="despatch_${from}_to_${to}.xlsx"`);
+    await wb.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    console.error('exportDateRangePlan error:', err);
+    res.status(500).json({ success: false, message: err.message });
   }
 }
 
@@ -205,8 +383,11 @@ export async function getPlanByDate(req, res) {
 
     const prevDate = new Date(plan_date + 'T00:00:00');
     prevDate.setDate(prevDate.getDate() - 1);
-    const prevPlan = await fetchFullPlan(prevDate.toISOString().slice(0, 10));
-    const incompleteFromPrev = prevPlan ? prevPlan.vehicles.filter(v => !v.is_completed) : [];
+    const prevDateStr = prevDate.toISOString().slice(0, 10);
+    const prevPlan = await fetchFullPlan(prevDateStr);
+    const incompleteFromPrev = prevPlan
+      ? prevPlan.vehicles.filter(v => !v.is_completed)
+      : [];
 
     res.json({ success: true, plan, incompleteFromPrev });
   } catch (err) {
@@ -228,6 +409,7 @@ export async function savePlan(req, res) {
     );
     const [plan] = await query(`SELECT id FROM despatch_plans WHERE plan_date = ?`, [plan_date]);
 
+    // Full replace strategy
     const existingVehicles = await query(`SELECT id FROM despatch_vehicles WHERE plan_id = ?`, [plan.id]);
     for (const v of existingVehicles) {
       await query(`DELETE FROM despatch_pallets WHERE vehicle_id = ?`, [v.id]);
@@ -246,7 +428,7 @@ export async function savePlan(req, res) {
         let tube_length = p.tube_length || null;
         if (p.part_number && !tube_length) {
           const [prod] = await query(`SELECT specification FROM products WHERE part_number = ?`, [p.part_number]);
-          if (prod?.specification) {
+          if (prod && prod.specification) {
             try {
               const spec = typeof prod.specification === 'string' ? JSON.parse(prod.specification) : prod.specification;
               tube_length = spec.tubeLength || null;
@@ -270,7 +452,7 @@ export async function savePlan(req, res) {
   }
 }
 
-/** PATCH /api/despatch-plan/vehicles/:vehicleId/priority */
+/** Update priority number for a vehicle */
 export async function updateVehiclePriority(req, res) {
   const { vehicleId } = req.params;
   const { priority_number } = req.body;
@@ -285,6 +467,75 @@ export async function updateVehiclePriority(req, res) {
   }
 }
 
+export async function updateScanData(req, res) {
+  const { plan_date, scannedData } = req.body;
+  if (!plan_date) return res.status(400).json({ success: false, message: 'plan_date required' });
+
+  try {
+    const plan = await fetchFullPlan(plan_date);
+    if (!plan) return res.status(404).json({ success: false, message: 'No plan found for this date' });
+
+    const previouslyCompleted = plan.vehicles.filter(v => v.is_completed).map(v => v.id);
+    const newlyCompleted = [];
+
+    // Reset filled_quantity first
+    for (const v of plan.vehicles) {
+      for (const p of v.pallets) {
+        await query(`UPDATE despatch_pallets SET filled_quantity = 0, is_fulfilled = 0 WHERE id = ?`, [p.id]);
+        p.filled_quantity = 0;
+        p.is_fulfilled = 0;
+      }
+    }
+
+    // Build scan map keyed by customer||part_number
+    const remainingScans = {};
+    (scannedData || []).forEach(s => {
+      const key = `${(s.customer || '').trim().toUpperCase()}||${(s.part_number || '').trim().toUpperCase()}`;
+      remainingScans[key] = (remainingScans[key] || 0) + (parseInt(s.quantity) || 0);
+    });
+
+    // Fill pallets in vehicle priority order (prev incomplete first handled by frontend; here just ordered list)
+    for (const v of plan.vehicles) {
+      for (const p of v.pallets) {
+        const key = `${(v.customer || '').trim().toUpperCase()}||${(p.part_number || '').trim().toUpperCase()}`;
+        if ((remainingScans[key] || 0) > 0 && p.target_qty > 0) {
+          const take = Math.min(remainingScans[key], p.target_qty);
+          p.filled_quantity = take;
+          remainingScans[key] -= take;
+        }
+        // Overflow
+        if ((remainingScans[key] || 0) > 0) {
+          p.filled_quantity = (p.filled_quantity || 0) + remainingScans[key];
+          remainingScans[key] = 0;
+        }
+        const isFulfilled = p.target_qty > 0 && p.filled_quantity >= p.target_qty ? 1 : 0;
+        await query(
+          `UPDATE despatch_pallets SET filled_quantity = ?, scanned_qty = ?, is_fulfilled = ? WHERE id = ?`,
+          [p.filled_quantity, p.filled_quantity, isFulfilled, p.id]
+        );
+        p.is_fulfilled = isFulfilled;
+      }
+
+      if (!v.is_completed && isVehicleFulfilled({ ...v, pallets: v.pallets })) {
+        await query(`UPDATE despatch_vehicles SET is_completed=1, completed_at=NOW() WHERE id=?`, [v.id]);
+        v.is_completed = 1;
+        newlyCompleted.push(v);
+      }
+    }
+
+    if (newlyCompleted.length > 0) {
+      const allCompleted = plan.vehicles.filter(v => v.is_completed || newlyCompleted.find(nc => nc.id === v.id));
+      sendCompletionMail(allCompleted, plan_date).catch(console.error);
+    }
+
+    const updatedPlan = await fetchFullPlan(plan_date);
+    res.json({ success: true, plan: updatedPlan, newlyCompleted: newlyCompleted.map(v => v.vehicle_label) });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+}
+
 export async function markVehicleComplete(req, res) {
   const { vehicleId } = req.params;
   try {
@@ -294,8 +545,9 @@ export async function markVehicleComplete(req, res) {
        JOIN despatch_plans dp ON dp.id = dv.plan_id WHERE dv.id=?`, [vehicleId]
     );
     if (v) {
-      v.pallets = await query(`SELECT * FROM despatch_pallets WHERE vehicle_id = ?`, [vehicleId]);
-      sendVehicleCompletionMail(v, v.plan_date).catch(console.error);
+      const plan = await fetchFullPlan(v.plan_date);
+      const completedVehicles = plan.vehicles.filter(veh => veh.is_completed);
+      sendCompletionMail(completedVehicles, v.plan_date).catch(console.error);
     }
     res.json({ success: true });
   } catch (err) {
@@ -313,13 +565,9 @@ export async function triggerDailyReport(req, res) {
   }
 }
 
-// ── Matrix-style Excel: Part Number | Tube Length | V1 | V2 | ... ─────────────
-// Row 1: (blank) | (blank) | V1 label | (blank) | V2 label | ...
-// Row 2: Part Number | Tube Length | Customer | Pallet | Customer | Pallet | ...
-// Data rows: part_number | tube_length | target_qty | pallet_label | ...
-
+/** Build daily Excel: columns = Part Number, Tube Length, then one col per vehicle */
 export async function sendDailyExcelReport(plan_date) {
-  const plan   = await fetchFullPlan(plan_date);
+  const plan = await fetchFullPlan(plan_date);
   const emails = await getDespatchEmails();
   if (!emails.length) return;
 
@@ -331,21 +579,15 @@ export async function sendDailyExcelReport(plan_date) {
   } else {
     const vehicles = plan.vehicles;
 
-    // Row 1: blank, blank, V1, blank, V2, blank ...
-    const row1Vals = ['Part Number', 'Tube Length'];
-    vehicles.forEach(v => { row1Vals.push(v.vehicle_label, ''); });
-    ws.addRow(row1Vals);
-
-    // Row 2: blank, blank, Customer, Pallet, Customer, Pallet ...
-    const row2Vals = ['', ''];
-    vehicles.forEach(() => { row2Vals.push('Customer', 'Pallet'); });
-    ws.addRow(row2Vals);
-
-    // Fill customer name into Row2 customer cols
-    vehicles.forEach((v, vi) => {
-      const colIdx = 3 + vi * 2;
-      ws.getRow(2).getCell(colIdx).value = v.customer || '';
+    // Row 1: Part number | TUBE LENGTH | V1 | | ...
+    const row1 = [];
+    const row2 = [];
+    vehicles.forEach(v => {
+      row1.push('Part number', 'TUBE LENGTH', v.vehicle_label, '');
+      row2.push('', '', v.customer || '', 'PALLET');
     });
+    ws.addRow(row1);
+    ws.addRow(row2);
 
     // Style header rows
     [ws.getRow(1), ws.getRow(2)].forEach(r => {
@@ -353,46 +595,33 @@ export async function sendDailyExcelReport(plan_date) {
       r.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF334155' } };
       r.alignment = { horizontal: 'center' };
     });
-    // Merge vehicle label cells on row 1
-    vehicles.forEach((_, vi) => {
-      const colIdx = 3 + vi * 2;
-      ws.mergeCells(1, colIdx, 1, colIdx + 1);
-    });
 
-    // Collect all unique part_number + tube_length combos
-    const combos = [];
-    const comboSet = new Set();
-    for (const v of vehicles) {
-      for (const p of v.pallets) {
-        const key = `${p.part_number || ''}||${p.tube_length || ''}`;
-        if (!comboSet.has(key)) {
-          comboSet.add(key);
-          combos.push({ part_number: p.part_number || '', tube_length: p.tube_length || '' });
+    // Find max pallets
+    const maxPallets = Math.max(...vehicles.map(v => v.pallets.length), 0);
+
+    for (let i = 0; i < maxPallets; i++) {
+      const rowData = [];
+      for (const v of vehicles) {
+        const p = v.pallets[i];
+        if (p) {
+          rowData.push(p.part_number, p.tube_length, `${p.filled_quantity ?? 0} / ${p.target_qty}`, p.pallet_label || '');
+        } else {
+          rowData.push('', '', '', '');
         }
       }
-    }
-
-    for (const combo of combos) {
-      const rowData = [combo.part_number, combo.tube_length];
-      for (const v of vehicles) {
-        const pallet = v.pallets.find(
-          p => (p.part_number||'') === combo.part_number && (p.tube_length||'') === combo.tube_length
-        );
-        rowData.push(pallet ? pallet.target_qty : 0, pallet ? (pallet.pallet_label || '') : '');
-      }
       const row = ws.addRow(rowData);
-      row.eachCell(cell => {
+      row.eachCell((cell) => {
         cell.border = { top:{style:'thin'}, bottom:{style:'thin'}, left:{style:'thin'}, right:{style:'thin'} };
         cell.alignment = { horizontal: 'center' };
       });
     }
 
-    // Column widths
-    ws.getColumn(1).width = 18;
-    ws.getColumn(2).width = 14;
     vehicles.forEach((_, vi) => {
-      ws.getColumn(3 + vi * 2).width = 15;
-      ws.getColumn(4 + vi * 2).width = 12;
+      const start = 1 + vi * 4;
+      ws.getColumn(start).width = 18;     // PN
+      ws.getColumn(start + 1).width = 16; // TL
+      ws.getColumn(start + 2).width = 12; // Qty
+      ws.getColumn(start + 3).width = 12; // Pallet
     });
   }
 
@@ -410,7 +639,7 @@ export async function sendDailyExcelReport(plan_date) {
   fs.unlinkSync(tmpPath);
 }
 
-/** GET /api/despatch-plan/export — same matrix structure */
+/** GET /api/despatch-plan/export */
 export async function exportPlan(req, res) {
   try {
     const plan_date = req.query.date || getPlanDate();
@@ -424,66 +653,57 @@ export async function exportPlan(req, res) {
     } else {
       const vehicles = plan.vehicles;
 
-      // Row 1: Part Number | Tube Length | V1 | | V2 | ...
-      const row1 = ['Part Number', 'Tube Length'];
+      // Row 1: Part number | TUBE LENGTH | V1 | | ...
+      const row1 = [];
+      const row2 = [];
       vehicles.forEach(v => {
-        row1.push(`${v.vehicle_label}${v.priority_number != null ? ` (P${v.priority_number})` : ''}`, '');
+        const vLabel = `${v.vehicle_label}${v.priority_number != null ? ` (P${v.priority_number})` : ''}`;
+        row1.push('Part number', 'TUBE LENGTH', vLabel, '');
+        row2.push('', '', v.customer || '', 'PALLET');
       });
       ws.addRow(row1);
-
-      // Row 2: | | Customer | Pallet | Customer | Pallet ...
-      const row2 = ['', ''];
-      vehicles.forEach(v => { row2.push(v.customer || '', 'Pallet'); });
       ws.addRow(row2);
 
-      // Style rows
+      // Style header rows
       [ws.getRow(1), ws.getRow(2)].forEach(r => {
         r.font = { bold: true, color: { argb: 'FFFFFFFF' } };
         r.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
         r.alignment = { horizontal: 'center' };
       });
-      vehicles.forEach((_, vi) => {
-        ws.mergeCells(1, 3 + vi * 2, 1, 4 + vi * 2);
-      });
 
-      // Combos
-      const combos = [];
-      const comboSet = new Set();
-      for (const v of vehicles) {
-        for (const p of v.pallets) {
-          const key = `${p.part_number||''}||${p.tube_length||''}`;
-          if (!comboSet.has(key)) {
-            comboSet.add(key);
-            combos.push({ part_number: p.part_number || '', tube_length: p.tube_length || '' });
-          }
-        }
-      }
+      // Find max pallets
+      const maxPallets = Math.max(...vehicles.map(v => v.pallets.length), 0);
 
-      for (const combo of combos) {
-        const rowData = [combo.part_number, combo.tube_length];
+      for (let i = 0; i < maxPallets; i++) {
+        const rowData = [];
         for (const v of vehicles) {
-          const pallet = v.pallets.find(
-            p => (p.part_number||'') === combo.part_number && (p.tube_length||'') === combo.tube_length
-          );
-          rowData.push(pallet ? pallet.target_qty : 0, pallet ? (pallet.pallet_label || '') : '');
+          const p = v.pallets[i];
+          if (p) {
+            rowData.push(p.part_number, p.tube_length, `${p.filled_quantity ?? 0} / ${p.target_qty}`, p.pallet_label || '');
+          } else {
+            rowData.push('', '', '', '');
+          }
         }
         const row = ws.addRow(rowData);
         row.eachCell((cell, colNum) => {
-          if (colNum > 2) {
-            const vIdx = Math.floor((colNum - 3) / 2);
-            const v = vehicles[vIdx];
-            if (v) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: v.is_completed ? 'FFD4EDDA' : 'FFFFF3CD' } };
+          const vIdx = Math.floor((colNum - 1) / 4);
+          const v = vehicles[vIdx];
+          const p = v ? v.pallets[i] : null;
+
+          if (v && p) {
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: v.is_completed ? 'FFD4EDDA' : 'FFFFF3CD' } };
           }
           cell.border = { top:{style:'thin'}, bottom:{style:'thin'}, left:{style:'thin'}, right:{style:'thin'} };
           cell.alignment = { horizontal: 'center' };
         });
       }
 
-      ws.getColumn(1).width = 18;
-      ws.getColumn(2).width = 14;
       vehicles.forEach((_, vi) => {
-        ws.getColumn(3 + vi * 2).width = 15;
-        ws.getColumn(4 + vi * 2).width = 12;
+        const start = 1 + vi * 4;
+        ws.getColumn(start).width = 18;
+        ws.getColumn(start + 1).width = 16;
+        ws.getColumn(start + 2).width = 12;
+        ws.getColumn(start + 3).width = 12;
       });
     }
 
@@ -495,9 +715,4 @@ export async function exportPlan(req, res) {
     console.error(err);
     res.status(500).json({ success: false, message: err.message });
   }
-}
-
-/** DELETE filled data — reset pallets for re-sync (optional utility) */
-export async function updateScanData(req, res) {
-  res.json({ success: true, message: 'Scan data is auto-synced via fillPalletsFromScan on each scan event.' });
 }

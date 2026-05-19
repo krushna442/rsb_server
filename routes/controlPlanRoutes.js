@@ -5,11 +5,12 @@ import { protectRoute } from '../middlewares/authMiddleware.js';
 import {
   listControlPlans, getControlPlan, getControlPlanVersions,
   addControlPlan, editControlPlan, addControlPlanVersion,
-  deleteControlPlan, toggleActiveControlPlan,
+  deleteControlPlan, toggleActiveControlPlan, deleteControlPlansByLine,
 } from '../controllers/controlPlanController.js';
 
 const router = express.Router();
 
+router.delete('/line/:line',       protectRoute, deleteControlPlansByLine);
 router.get('/',                   protectRoute, listControlPlans);
 router.get('/:id',                protectRoute, getControlPlan);
 router.get('/:id/versions',       protectRoute, getControlPlanVersions);

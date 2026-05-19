@@ -479,7 +479,7 @@ async function createStandardsTable() {
         rev_date      DATE,
         comment       TEXT,
         file_path     VARCHAR(500),
-        category      ENUM('SS/TS','ISO','DIN','MANUAL') DEFAULT 'MANUAL',
+        category      VARCHAR(150) DEFAULT 'MANUAL',
         version       INT UNSIGNED DEFAULT 1,
         parent_id     INT UNSIGNED NULL,
         is_latest     TINYINT(1) DEFAULT 1,
@@ -509,7 +509,7 @@ async function createControlPlansTable() {
       CREATE TABLE IF NOT EXISTS control_plans (
         id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
         name        VARCHAR(255) NOT NULL,
-        line        ENUM('FRONT LINE','REAR LINE','COMMON LINE','SOP / Quality Alert') NOT NULL DEFAULT 'FRONT LINE',
+        line        VARCHAR(150) NOT NULL DEFAULT 'FRONT LINE',
         rev_no      VARCHAR(50),
         rev_date    DATE,
         file_path   VARCHAR(500),
@@ -729,12 +729,17 @@ export async function runBootstrap() {
     await createDespatchPlanTables();
     await createSopVideosTable();
     
+    // Migration to make control_plans line column dynamic (VARCHAR instead of ENUM)
+    // try { await query(`ALTER TABLE control_plans MODIFY COLUMN line VARCHAR(255) NOT NULL DEFAULT 'FRONT LINE'`); } catch (_) {}
+
     // // New Migrations
     // try { await query(`ALTER TABLE drawings ADD COLUMN remarks TEXT`); } catch (_) {}
     // try { await query(`ALTER TABLE standards ADD COLUMN remarks TEXT`); } catch (_) {}
     // try { await query(`ALTER TABLE control_plans ADD COLUMN sequence_number INT DEFAULT 0`); } catch (_) {}
     // try { await query(`ALTER TABLE dynamic_fields ADD COLUMN bearing_JT_types JSON NOT NULL DEFAULT ('[]')`); } catch (_) {}
     // try { await query(`ALTER TABLE bearing_cup_plans ADD COLUMN previous_diff INT DEFAULT 0`); } catch (_) {}
+    try { await query(`ALTER TABLE standards MODIFY COLUMN category VARCHAR(150) DEFAULT 'MANUAL'`); } catch (_) {}
+    try { await query(`ALTER TABLE control_plans MODIFY COLUMN line VARCHAR(150) DEFAULT 'FRONT LINE'`); } catch (_) {}
 
     // // Bearing Cup extra shift columns migration
     // for (let i = 4; i <= 6; i++) {

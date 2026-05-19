@@ -4,7 +4,6 @@ import fs from 'fs';
 import path from 'path';
 
 const parseUser = (req) => req.user?.username || req.user?.name || 'system';
-const VALID_LINES = ['FRONT LINE', 'REAR LINE', 'COMMON LINE', 'SOP / Quality Alert'];
 
 export const listControlPlans = async (req, res) => {
   try {
@@ -56,7 +55,6 @@ export const addControlPlan = async (req, res) => {
     if (!name) return res.status(400).json({ success: false, message: 'name is required' });
     const file_path = req.file ? `uploads/control-plans/${req.file.filename}` : null;
     const createdBy = parseUser(req);
-    const validLine = VALID_LINES.includes(line) ? line : 'FRONT LINE';
     const validLang = ['English', 'Hindi'].includes(language) ? language : 'English';
     const existing = await queryOne('SELECT id, version FROM control_plans WHERE name = ? AND is_latest = 1', [name]);
     let newVersion = 1;
@@ -66,7 +64,7 @@ export const addControlPlan = async (req, res) => {
     }
     const result = await execute(
       `INSERT INTO control_plans (name, line, rev_no, rev_date, file_path, language, version, is_latest, is_active, sequence_number, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?)`,
-      [name, validLine, rev_no || null, rev_date || null, file_path, validLang, newVersion, sequence_number || 0, createdBy]
+      [name, line, rev_no || null, rev_date || null, file_path, validLang, newVersion, sequence_number || 0, createdBy]
     );
     const newRow = await queryOne('SELECT * FROM control_plans WHERE id = ?', [result.insertId]);
     res.status(201).json({ success: true, data: newRow });
@@ -83,7 +81,7 @@ export const editControlPlan = async (req, res) => {
     const updates = [];
     const vals = [];
     if (name !== undefined)      { updates.push('name=?');       vals.push(name); }
-    if (VALID_LINES.includes(line)) { updates.push('line=?');   vals.push(line); }
+    if (line !== undefined)      { updates.push('line=?');       vals.push(line); }
     if (rev_no !== undefined)    { updates.push('rev_no=?');     vals.push(rev_no); }
     if (rev_date !== undefined)  { updates.push('rev_date=?');   vals.push(rev_date); }
     if (['English','Hindi'].includes(language)) { updates.push('language=?'); vals.push(language); }
@@ -149,6 +147,24 @@ export const toggleActiveControlPlan = async (req, res) => {
     await execute('UPDATE control_plans SET is_active = ? WHERE id = ?', [row.is_active ? 0 : 1, id]);
     const updated = await queryOne('SELECT * FROM control_plans WHERE id = ?', [id]);
     res.json({ success: true, data: updated });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+export const deleteControlPlansByLine = async (req, res) => {
+  try {
+    const { line } = req.params;
+    // Find all files to delete from disk
+    const rows = await query('SELECT file_path FROM control_plans WHERE line = ?', [line]);
+    for (const row of rows) {
+      if (row.file_path) {
+        const fullPath = path.join(process.cwd(), row.file_path);
+        if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+      }
+    }
+    await execute('DELETE FROM control_plans WHERE line = ?', [line]);
+    res.json({ success: true, message: `All control plans for line ${line} deleted` });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
