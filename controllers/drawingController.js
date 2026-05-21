@@ -2,6 +2,7 @@
 import { query, queryOne, execute } from '../db/db.js';
 import fs from 'fs';
 import path from 'path';
+import { parseRemarks, serializeRemarks } from '../utils/remarksHelper.js';
 
 const parseUser = (req) => req.user?.username || req.user?.name || 'system';
 
@@ -48,25 +49,24 @@ export const listDrawings = async (req, res) => {
     const role = req.user?.role || 'viewer';
     const isAdmin = ['admin', 'super admin'].includes(role);
 
-    // Always return latest records; grouped by customer in frontend
     const rows = await query(
       `SELECT * FROM drawings WHERE is_latest = 1 ORDER BY customer ASC, LENGTH(serial_number) ASC, serial_number ASC`
     );
+    const parsedRows = rows.map(r => ({ ...r, remarks: parseRemarks(r.remarks) }));
 
-    // For admin, also send version metadata per drawing_number
     let versionMap = {};
     if (isAdmin) {
       const allRows = await query(
-        `SELECT id, drawing_number, version, modification_number, modification_date, created_at
+        `SELECT id, drawing_number, version, modification_number, modification_date, created_at, remarks
          FROM drawings ORDER BY drawing_number ASC, version ASC`
       );
       allRows.forEach(r => {
         if (!versionMap[r.drawing_number]) versionMap[r.drawing_number] = [];
-        versionMap[r.drawing_number].push(r);
+        versionMap[r.drawing_number].push({ ...r, remarks: parseRemarks(r.remarks) });
       });
     }
 
-    res.json({ success: true, data: rows, versionMap: isAdmin ? versionMap : {} });
+    res.json({ success: true, data: parsedRows, versionMap: isAdmin ? versionMap : {} });
   } catch (err) {
     console.error('listDrawings error:', err);
     res.status(500).json({ success: false, message: err.message });
@@ -78,6 +78,7 @@ export const getDrawing = async (req, res) => {
   try {
     const row = await queryOne('SELECT * FROM drawings WHERE id = ?', [req.params.id]);
     if (!row) return res.status(404).json({ success: false, message: 'Drawing not found' });
+    row.remarks = parseRemarks(row.remarks);
     res.json({ success: true, data: row });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -94,7 +95,8 @@ export const getDrawingVersions = async (req, res) => {
       `SELECT * FROM drawings WHERE drawing_number = ? ORDER BY version DESC`,
       [base.drawing_number]
     );
-    res.json({ success: true, data: rows });
+    const parsedRows = rows.map(r => ({ ...r, remarks: parseRemarks(r.remarks) }));
+    res.json({ success: true, data: parsedRows });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -172,11 +174,12 @@ export const addDrawing = async (req, res) => {
       [
         drawing_number, serial_number, shaft || null, joint || null, part_number || null,
         customer || null, modification_number || null, modification_date,
-        bom_path || null, file_path, newVersion, remarks || null, createdBy
+        bom_path || null, file_path, newVersion, serializeRemarks(remarks), createdBy
       ]
     );
 
     const newRow = await queryOne('SELECT * FROM drawings WHERE id = ?', [result.insertId]);
+    newRow.remarks = parseRemarks(newRow.remarks);
     res.status(201).json({ success: true, data: newRow });
   } catch (err) {
     console.error('addDrawing error:', err);
@@ -216,10 +219,11 @@ export const editDrawing = async (req, res) => {
            bom=?, file_path=?, remarks=?, updated_by=?
        WHERE id = ?`,
       [shaft || null, joint || null, part_number || null, customer || null,
-       modification_number || null, bom_path || null, file_path || null, remarks || null, updatedBy, id]
+       modification_number || null, bom_path || null, file_path || null, serializeRemarks(remarks), updatedBy, id]
     );
 
     const row = await queryOne('SELECT * FROM drawings WHERE id = ?', [id]);
+    row.remarks = parseRemarks(row.remarks);
     res.json({ success: true, data: row });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -276,11 +280,12 @@ export const addDrawingVersion = async (req, res) => {
         existing.drawing_number, existing.serial_number, existing.shaft, existing.joint, existing.part_number,
         existing.customer, modification_number || existing.modification_number,
         modification_date, bom_path, file_path,
-        newVersion, existing.id, remarks || null, createdBy
+        newVersion, existing.id, serializeRemarks(remarks), createdBy
       ]
     );
 
     const newRow = await queryOne('SELECT * FROM drawings WHERE id = ?', [result.insertId]);
+    newRow.remarks = parseRemarks(newRow.remarks);
     res.status(201).json({ success: true, data: newRow });
   } catch (err) {
     console.error('addDrawingVersion error:', err);

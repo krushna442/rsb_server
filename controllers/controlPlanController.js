@@ -2,6 +2,7 @@
 import { query, queryOne, execute } from '../db/db.js';
 import fs from 'fs';
 import path from 'path';
+import { parseRemarks, serializeRemarks } from '../utils/remarksHelper.js';
 
 const parseUser = (req) => req.user?.username || req.user?.name || 'system';
 
@@ -14,15 +15,16 @@ export const listControlPlans = async (req, res) => {
     if (active === '1') sql += ` AND is_active = 1`;
     sql += ` ORDER BY line ASC, sequence_number ASC, name ASC`;
     const rows = await query(sql);
+    const parsedRows = rows.map(r => ({ ...r, remarks: parseRemarks(r.remarks) }));
     let versionMap = {};
     if (isAdmin) {
-      const allRows = await query(`SELECT id, name, version, rev_no, rev_date, created_at FROM control_plans ORDER BY name ASC, version ASC`);
+      const allRows = await query(`SELECT id, name, version, rev_no, rev_date, created_at, remarks FROM control_plans ORDER BY name ASC, version ASC`);
       allRows.forEach(r => {
         if (!versionMap[r.name]) versionMap[r.name] = [];
-        versionMap[r.name].push(r);
+        versionMap[r.name].push({ ...r, remarks: parseRemarks(r.remarks) });
       });
     }
-    res.json({ success: true, data: rows, versionMap: isAdmin ? versionMap : {} });
+    res.json({ success: true, data: parsedRows, versionMap: isAdmin ? versionMap : {} });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -32,6 +34,7 @@ export const getControlPlan = async (req, res) => {
   try {
     const row = await queryOne('SELECT * FROM control_plans WHERE id = ?', [req.params.id]);
     if (!row) return res.status(404).json({ success: false, message: 'Not found' });
+    row.remarks = parseRemarks(row.remarks);
     res.json({ success: true, data: row });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -43,7 +46,8 @@ export const getControlPlanVersions = async (req, res) => {
     const base = await queryOne('SELECT name FROM control_plans WHERE id = ?', [req.params.id]);
     if (!base) return res.status(404).json({ success: false, message: 'Not found' });
     const rows = await query(`SELECT * FROM control_plans WHERE name = ? ORDER BY version DESC`, [base.name]);
-    res.json({ success: true, data: rows });
+    const parsedRows = rows.map(r => ({ ...r, remarks: parseRemarks(r.remarks) }));
+    res.json({ success: true, data: parsedRows });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -51,7 +55,7 @@ export const getControlPlanVersions = async (req, res) => {
 
 export const addControlPlan = async (req, res) => {
   try {
-    const { name, line, rev_no, rev_date, language, sequence_number } = req.body;
+    const { name, line, rev_no, rev_date, language, sequence_number, remarks } = req.body;
     if (!name) return res.status(400).json({ success: false, message: 'name is required' });
     const file_path = req.file ? `uploads/control-plans/${req.file.filename}` : null;
     const createdBy = parseUser(req);
@@ -63,10 +67,11 @@ export const addControlPlan = async (req, res) => {
       newVersion = existing.version + 1;
     }
     const result = await execute(
-      `INSERT INTO control_plans (name, line, rev_no, rev_date, file_path, language, version, is_latest, is_active, sequence_number, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?)`,
-      [name, line, rev_no || null, rev_date || null, file_path, validLang, newVersion, sequence_number || 0, createdBy]
+      `INSERT INTO control_plans (name, line, rev_no, rev_date, file_path, language, version, is_latest, is_active, sequence_number, remarks, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?)`,
+      [name, line, rev_no || null, rev_date || null, file_path, validLang, newVersion, sequence_number || 0, serializeRemarks(remarks), createdBy]
     );
     const newRow = await queryOne('SELECT * FROM control_plans WHERE id = ?', [result.insertId]);
+    newRow.remarks = parseRemarks(newRow.remarks);
     res.status(201).json({ success: true, data: newRow });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -76,7 +81,7 @@ export const addControlPlan = async (req, res) => {
 export const editControlPlan = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, line, rev_no, rev_date, language, is_active, sequence_number } = req.body;
+    const { name, line, rev_no, rev_date, language, is_active, sequence_number, remarks } = req.body;
     const updatedBy = parseUser(req);
     const updates = [];
     const vals = [];
@@ -87,10 +92,12 @@ export const editControlPlan = async (req, res) => {
     if (['English','Hindi'].includes(language)) { updates.push('language=?'); vals.push(language); }
     if (is_active !== undefined) { updates.push('is_active=?');  vals.push(is_active ? 1 : 0); }
     if (sequence_number !== undefined) { updates.push('sequence_number=?'); vals.push(sequence_number); }
+    if (remarks !== undefined)   { updates.push('remarks=?');    vals.push(serializeRemarks(remarks)); }
     updates.push('updated_by=?'); vals.push(updatedBy);
     vals.push(id);
     await execute(`UPDATE control_plans SET ${updates.join(',')} WHERE id=?`, vals);
     const row = await queryOne('SELECT * FROM control_plans WHERE id = ?', [id]);
+    row.remarks = parseRemarks(row.remarks);
     res.json({ success: true, data: row });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -100,7 +107,7 @@ export const editControlPlan = async (req, res) => {
 export const addControlPlanVersion = async (req, res) => {
   try {
     const { id } = req.params;
-    const { rev_no, rev_date } = req.body;
+    const { rev_no, rev_date, remarks } = req.body;
     const createdBy = parseUser(req);
     const existing = await queryOne('SELECT * FROM control_plans WHERE id = ?', [id]);
     if (!existing) return res.status(404).json({ success: false, message: 'Not found' });
@@ -109,10 +116,11 @@ export const addControlPlanVersion = async (req, res) => {
     const maxVer = await queryOne('SELECT MAX(version) as mv FROM control_plans WHERE name = ?', [existing.name]);
     const newVersion = (maxVer?.mv || 0) + 1;
     const result = await execute(
-      `INSERT INTO control_plans (name, line, rev_no, rev_date, file_path, language, version, parent_id, is_latest, is_active, sequence_number, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?)`,
-      [existing.name, existing.line, rev_no || existing.rev_no, rev_date || new Date().toISOString().slice(0, 10), file_path || existing.file_path, existing.language, newVersion, existing.id, existing.sequence_number || 0, createdBy]
+      `INSERT INTO control_plans (name, line, rev_no, rev_date, file_path, language, version, parent_id, is_latest, is_active, sequence_number, remarks, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?)`,
+      [existing.name, existing.line, rev_no || existing.rev_no, rev_date || new Date().toISOString().slice(0, 10), file_path || existing.file_path, existing.language, newVersion, existing.id, existing.sequence_number || 0, serializeRemarks(remarks), createdBy]
     );
     const newRow = await queryOne('SELECT * FROM control_plans WHERE id = ?', [result.insertId]);
+    newRow.remarks = parseRemarks(newRow.remarks);
     res.status(201).json({ success: true, data: newRow });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -169,3 +177,150 @@ export const deleteControlPlansByLine = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
+export const uploadControlPlanChunkFile = async (req, res) => {
+  try {
+    const uploadId = req.query.uploadId || req.body.uploadId;
+    const chunkIndex = req.query.chunkIndex || req.body.chunkIndex;
+    const { totalChunks, fileName, name, line, rev_no, rev_date, language, sequence_number } = req.body;
+
+    if (!req.file) return res.status(400).json({ success: false, message: 'Chunk file missing' });
+
+    const cIdx = parseInt(chunkIndex);
+    const tChunks = parseInt(totalChunks);
+
+    if (cIdx === tChunks - 1) {
+      const finalDir = 'uploads/control-plans';
+      if (!fs.existsSync(finalDir)) fs.mkdirSync(finalDir, { recursive: true });
+      const finalName = `${Date.now()}_${fileName}`;
+      const finalPath = path.posix.join(finalDir, finalName);
+      
+      const writeStream = fs.createWriteStream(finalPath);
+      const tempDir = `uploads/temp_control_plan_chunks/${uploadId}`;
+
+      const finishPromise = new Promise((resolve, reject) => {
+        writeStream.on('finish', resolve);
+        writeStream.on('error', reject);
+      });
+
+      const appendChunk = (index) => {
+        return new Promise((resolve, reject) => {
+          if (index >= tChunks) {
+            writeStream.end();
+            return resolve();
+          }
+          const chunkPath = path.join(tempDir, `chunk_${index}`);
+          if (!fs.existsSync(chunkPath)) return reject(new Error(`Missing chunk ${index}`));
+          
+          const readStream = fs.createReadStream(chunkPath);
+          readStream.pipe(writeStream, { end: false });
+          readStream.on('end', () => {
+            fs.unlinkSync(chunkPath);
+            resolve(appendChunk(index + 1));
+          });
+          readStream.on('error', reject);
+        });
+      };
+
+      await appendChunk(0);
+      await finishPromise;
+      if (fs.existsSync(tempDir)) fs.rmdirSync(tempDir);
+
+      if (!name) return res.status(400).json({ success: false, message: 'name is required' });
+      const createdBy = parseUser(req);
+      const validLang = ['English', 'Hindi'].includes(language) ? language : 'English';
+      const existing = await queryOne('SELECT id, version FROM control_plans WHERE name = ? AND is_latest = 1', [name]);
+      let newVersion = 1;
+      if (existing) {
+        await execute('UPDATE control_plans SET is_latest = 0 WHERE name = ? AND is_latest = 1', [name]);
+        newVersion = existing.version + 1;
+      }
+      const result = await execute(
+        `INSERT INTO control_plans (name, line, rev_no, rev_date, file_path, language, version, is_latest, is_active, sequence_number, remarks, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?)`,
+        [name, line, rev_no || null, rev_date || null, finalPath, validLang, newVersion, sequence_number || 0, serializeRemarks(remarks), createdBy]
+      );
+      const newRow = await queryOne('SELECT * FROM control_plans WHERE id = ?', [result.insertId]);
+      newRow.remarks = parseRemarks(newRow.remarks);
+
+      return res.status(201).json({ success: true, message: 'Upload complete', data: newRow });
+    }
+
+    res.json({ success: true, message: 'Chunk uploaded' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+export const uploadControlPlanVersionChunkFile = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const uploadId = req.query.uploadId || req.body.uploadId;
+    const chunkIndex = req.query.chunkIndex || req.body.chunkIndex;
+    const { totalChunks, fileName, rev_no, rev_date, remarks } = req.body;
+
+    if (!req.file) return res.status(400).json({ success: false, message: 'Chunk file missing' });
+
+    const existing = await queryOne('SELECT * FROM control_plans WHERE id = ?', [id]);
+    if (!existing) return res.status(404).json({ success: false, message: 'Not found' });
+
+    const cIdx = parseInt(chunkIndex);
+    const tChunks = parseInt(totalChunks);
+
+    if (cIdx === tChunks - 1) {
+      const finalDir = 'uploads/control-plans';
+      if (!fs.existsSync(finalDir)) fs.mkdirSync(finalDir, { recursive: true });
+      const finalName = `${Date.now()}_${fileName}`;
+      const finalPath = path.posix.join(finalDir, finalName);
+      
+      const writeStream = fs.createWriteStream(finalPath);
+      const tempDir = `uploads/temp_control_plan_chunks/${uploadId}`;
+
+      const finishPromise = new Promise((resolve, reject) => {
+        writeStream.on('finish', resolve);
+        writeStream.on('error', reject);
+      });
+
+      const appendChunk = (index) => {
+        return new Promise((resolve, reject) => {
+          if (index >= tChunks) {
+            writeStream.end();
+            return resolve();
+          }
+          const chunkPath = path.join(tempDir, `chunk_${index}`);
+          if (!fs.existsSync(chunkPath)) return reject(new Error(`Missing chunk ${index}`));
+          
+          const readStream = fs.createReadStream(chunkPath);
+          readStream.pipe(writeStream, { end: false });
+          readStream.on('end', () => {
+            fs.unlinkSync(chunkPath);
+            resolve(appendChunk(index + 1));
+          });
+          readStream.on('error', reject);
+        });
+      };
+
+      await appendChunk(0);
+      await finishPromise;
+      if (fs.existsSync(tempDir)) fs.rmdirSync(tempDir);
+
+      const createdBy = parseUser(req);
+      await execute('UPDATE control_plans SET is_latest = 0 WHERE name = ? AND is_latest = 1', [existing.name]);
+      const maxVer = await queryOne('SELECT MAX(version) as mv FROM control_plans WHERE name = ?', [existing.name]);
+      const newVersion = (maxVer?.mv || 0) + 1;
+      
+      const result = await execute(
+        `INSERT INTO control_plans (name, line, rev_no, rev_date, file_path, language, version, parent_id, is_latest, is_active, sequence_number, remarks, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?)`,
+        [existing.name, existing.line, rev_no || existing.rev_no, rev_date || new Date().toISOString().slice(0, 10), finalPath, existing.language, newVersion, existing.id, existing.sequence_number || 0, serializeRemarks(remarks), createdBy]
+      );
+      const newRow = await queryOne('SELECT * FROM control_plans WHERE id = ?', [result.insertId]);
+      newRow.remarks = parseRemarks(newRow.remarks);
+
+      return res.status(201).json({ success: true, message: 'Upload complete', data: newRow });
+    }
+
+    res.json({ success: true, message: 'Chunk uploaded' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+

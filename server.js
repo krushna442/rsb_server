@@ -24,6 +24,7 @@ import skillMatrixRoutes from "./routes/skillMatrixRoutes.js";
 import despatchPlanRoutes from "./routes/despatchPlanRoutes.js";
 import sopVideoRoutes from "./routes/sopVideoRoutes.js";
 import { sendDailyExcelReport } from "./controllers/despatchPlanController.js";
+import { sendProductionPendingReminder, sendQualityPendingReminder } from "./utils/productPendingCron.js";
 import cron from "node-cron";
 dotenv.config();
 
@@ -34,7 +35,7 @@ const PORT = process.env.PORT || 5000;
 // ✅ CORS setup
 app.use(
   cors({
-    origin: ["http://192.168.1.9:3000","http://10.250.71.17:3000", "http://172.22.39.17:3000","http://10.99.45.17:3000","http://192.168.1.7:3000","http://10.99.45.17:3001","http://192.168.1.10:3000"],
+    origin: ["http://192.168.1.3:3000","http://10.88.69.17:3000", "http://172.22.39.17:3000","http://10.99.45.17:3000","http://192.168.1.7:3000","http://10.99.45.17:3001","http://192.168.1.10:3000"],
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
     allowedHeaders: ["Content-Type", "Authorization"],
@@ -94,6 +95,26 @@ app.listen(PORT, () => {
       console.log('[CRON] Despatch report sent');
     } catch (err) {
       console.error('[CRON] Despatch report error:', err.message);
+    }
+  }, { timezone: 'Asia/Kolkata' });
+
+  // 9:00 AM IST daily — Production pending approval reminder (IST = UTC+5:30 → UTC 03:30)
+  cron.schedule('30 3 * * *', async () => {
+    try {
+      console.log('[CRON] Running production pending approval reminder...');
+      await sendProductionPendingReminder();
+    } catch (err) {
+      console.error('[CRON] Production pending reminder error:', err.message);
+    }
+  }, { timezone: 'Asia/Kolkata' });
+
+  // 9:05 AM IST daily — Quality pending verification reminder (IST = UTC+5:30 → UTC 03:35)
+  cron.schedule('35 3 * * *', async () => {
+    try {
+      console.log('[CRON] Running quality pending verification reminder...');
+      await sendQualityPendingReminder();
+    } catch (err) {
+      console.error('[CRON] Quality pending reminder error:', err.message);
     }
   }, { timezone: 'Asia/Kolkata' });
 });

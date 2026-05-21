@@ -17,7 +17,7 @@ import {
 } from '../models/productModel.js';
 import { findEmailsByRoles } from '../models/userModel.js';
 import { sendMail } from '../utils/mailer.js';
-import { newProductTemplate, productActiveTemplate, productionApprovalTemplate, qualityApprovalTemplate } from '../utils/emailTemplates.js';
+import { newProductTemplate, productActiveTemplate, productionApprovalTemplate, qualityApprovalTemplate, productRejectionTemplate } from '../utils/emailTemplates.js';
 
 export const listProducts = async (req, res) => {
   try {
@@ -157,7 +157,7 @@ export const approveProduct = async (req, res) => {
       await updateProduct(req.params.id, { status: "rejected" });
       data.status = "rejected";
     }
-if(status=="approved"){
+  if(status=="approved"){
     try {
       const emails = await findEmailsByRoles(["admin", "super admin"]);
       if (emails.length > 0) {
@@ -175,13 +175,40 @@ if(status=="approved"){
             revNo: data.specification?.revNo,
             productionBy: req.user?.name,
             productionStatus: status,
-            productionTime: formatDateTime(data.updated_at), // ✅ clean call
+            productionTime: formatDateTime(data.updated_at),
             productionRemark: remark,
           }),
         });
       }
     } catch (mailErr) {
       console.error("Error sending production approval email:", mailErr);
+    }
+  }
+
+  if(status=="rejected"){
+    try {
+      const emails = await findEmailsByRoles(["admin", "super admin"]);
+      if (emails.length > 0) {
+        await sendMail({
+          to: emails,
+          subject: "⚠ Part Rejected by Production",
+          html: productRejectionTemplate({
+            partNumber: data.part_number,
+            customerName: data.customer,
+            vendorCode: data.specification?.vendorCode,
+            partDescription: data.specification?.partDescription,
+            series: data.specification?.series,
+            tubeLength: data.specification?.tubeLength,
+            partType: data.specification?.partType,
+            revNo: data.specification?.revNo,
+            rejectedBy: req.user?.name,
+            rejectedByRole: "production",
+            rejectionRemark: remark,
+          }),
+        });
+      }
+    } catch (mailErr) {
+      console.error("Error sending production rejection email:", mailErr);
     }
   }
 
@@ -237,15 +264,42 @@ if(status=="approved"){
             revNo: data.specification?.revNo,
             qualityBy: req.user?.name,
             qualityStatus: status,
-            qualityTime: formatDateTime(data.updated_at), // ✅ clean call
+            qualityTime: formatDateTime(data.updated_at),
             qualityRemark: remark,
           }),
         });
       }
     } catch (mailErr) {
-      console.error("Error sending production approval email:", mailErr);
+      console.error("Error sending quality approval email:", mailErr);
     }
 }
+
+  if(status=="rejected"){
+    try {
+      const emails = await findEmailsByRoles(["admin", "super admin"]);
+      if (emails.length > 0) {
+        await sendMail({
+          to: emails,
+          subject: "⚠ Part Rejected by Quality",
+          html: productRejectionTemplate({
+            partNumber: data.part_number,
+            customerName: data.customer,
+            vendorCode: data.specification?.vendorCode,
+            partDescription: data.specification?.partDescription,
+            series: data.specification?.series,
+            tubeLength: data.specification?.tubeLength,
+            partType: data.specification?.partType,
+            revNo: data.specification?.revNo,
+            rejectedBy: req.user?.name,
+            rejectedByRole: "quality",
+            rejectionRemark: remark,
+          }),
+        });
+      }
+    } catch (mailErr) {
+      console.error("Error sending quality rejection email:", mailErr);
+    }
+  }
 
     res.json({ success: true, data });
   } catch (error) {

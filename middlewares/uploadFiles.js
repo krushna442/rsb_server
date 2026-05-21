@@ -71,3 +71,20 @@ export const uploadSopVideoChunk = multer({
   }),
   limits: { fileSize: 50 * 1024 * 1024 }
 });
+
+export const uploadControlPlanChunk = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      const uploadId = req.query.uploadId || req.body.uploadId;
+      if (!uploadId) return cb(new Error("uploadId required"));
+      const dir = `uploads/temp_control_plan_chunks/${uploadId}`;
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      cb(null, dir);
+    },
+    filename: (req, file, cb) => {
+      const chunkIndex = req.query.chunkIndex || req.body.chunkIndex;
+      cb(null, `chunk_${chunkIndex}`);
+    }
+  }),
+  limits: { fileSize: 50 * 1024 * 1024 }
+});

@@ -4,7 +4,7 @@ import { protectRoute } from '../middlewares/authMiddleware.js';
 import {
   getPlanByDate, savePlan, updateScanData,
   markVehicleComplete, triggerDailyReport, exportPlan,
-  updateVehiclePriority, getDespatchGraphData, exportDateRangePlan
+  updateVehiclePriority, getDespatchGraphData, exportDateRangePlan, updateSingleVehicle
 } from '../controllers/despatchPlanController.js';
 
 const router = express.Router();
@@ -24,6 +24,7 @@ router.post('/save',                          protectRoute, productionOrAbove, s
 router.post('/sync-scan',                     protectRoute, productionOrAbove, updateScanData);
 router.patch('/vehicles/:vehicleId/complete', protectRoute, productionOrAbove, markVehicleComplete);
 router.patch('/vehicles/:vehicleId/priority', protectRoute, updateVehiclePriority); // all users can set priority
+router.put('/vehicles/:vehicleId', protectRoute, productionOrAbove, updateSingleVehicle);
 router.post('/send-daily-report',             protectRoute, triggerDailyReport);
 
 export default router;

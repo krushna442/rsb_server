@@ -252,6 +252,9 @@ async function createDynamicFieldsTable() {
             "COMMON LINE",
             "SOP / Quality Alert"
           ]),
+          JSON.stringify([
+
+          ])
 
         ]
       );
@@ -671,6 +674,7 @@ async function createDespatchPlanTables() {
         target_qty     INT DEFAULT 0,
         filled_quantity INT DEFAULT 0,
         scanned_qty    INT DEFAULT 0,
+        filled_today   INT DEFAULT 0,
         is_fulfilled   TINYINT(1) DEFAULT 0,
         INDEX idx_vehicle (vehicle_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -728,8 +732,14 @@ export async function runBootstrap() {
     await createSkillMatrixTables();
     await createDespatchPlanTables();
     await createSopVideosTable();
-    
+
+    // Ensure remarks column exists in control_plans
+    // try {
+    //   await query(`ALTER TABLE control_plans ADD COLUMN remarks TEXT`);
+    // } catch (_) {}
+
     // Migration to make control_plans line column dynamic (VARCHAR instead of ENUM)
+
     // try { await query(`ALTER TABLE control_plans MODIFY COLUMN line VARCHAR(255) NOT NULL DEFAULT 'FRONT LINE'`); } catch (_) {}
 
     // // New Migrations
@@ -738,8 +748,9 @@ export async function runBootstrap() {
     // try { await query(`ALTER TABLE control_plans ADD COLUMN sequence_number INT DEFAULT 0`); } catch (_) {}
     // try { await query(`ALTER TABLE dynamic_fields ADD COLUMN bearing_JT_types JSON NOT NULL DEFAULT ('[]')`); } catch (_) {}
     // try { await query(`ALTER TABLE bearing_cup_plans ADD COLUMN previous_diff INT DEFAULT 0`); } catch (_) {}
-    try { await query(`ALTER TABLE standards MODIFY COLUMN category VARCHAR(150) DEFAULT 'MANUAL'`); } catch (_) {}
-    try { await query(`ALTER TABLE control_plans MODIFY COLUMN line VARCHAR(150) DEFAULT 'FRONT LINE'`); } catch (_) {}
+    // try { await query(`ALTER TABLE standards MODIFY COLUMN category VARCHAR(150) DEFAULT 'MANUAL'`); } catch (_) {}
+    // try { await query(`ALTER TABLE control_plans MODIFY COLUMN line VARCHAR(150) DEFAULT 'FRONT LINE'`); } catch (_) {}
+    // try { await query(`ALTER TABLE despatch_pallets ADD COLUMN filled_today INT DEFAULT 0 AFTER scanned_qty`); } catch (_) {}
 
     // // Bearing Cup extra shift columns migration
     // for (let i = 4; i <= 6; i++) {

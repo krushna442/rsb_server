@@ -230,3 +230,154 @@ export const qualityApprovalTemplate = (data) => {
     </div>
   `;
 };
+
+// ============================================================
+// PRODUCT REJECTION EMAIL TEMPLATE
+// ============================================================
+export const productRejectionTemplate = (data) => {
+  const {
+    partNumber,
+    customerName,
+    vendorCode,
+    partDescription,
+    series,
+    tubeLength,
+    partType,
+    revNo,
+    rejectedBy,
+    rejectedByRole,   // 'production' or 'quality'
+    rejectionRemark,
+  } = data;
+
+  const formattedDate = new Date().toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    timeZone: "Asia/Kolkata",
+  });
+
+  const formattedTime = new Date().toLocaleTimeString("en-IN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: "Asia/Kolkata",
+  });
+
+  const roleLabel = rejectedByRole === "quality" ? "Quality" : "Production";
+
+  return `
+    <div style="font-family: Arial, sans-serif; color: #000000; max-width: 100%; margin: 0 auto; padding: 24px;">
+
+      <div style="background-color: #dc2626; padding: 16px 24px; border-radius: 6px 6px 0 0;">
+        <h2 style="color: #ffffff; margin: 0; font-size: 20px;">⚠ Product Rejected by ${roleLabel}</h2>
+      </div>
+
+      <div style="border: 1px solid #dc2626; border-top: none; border-radius: 0 0 6px 6px; padding: 24px; background: #fff5f5;">
+        <p style="margin: 0 0 10px; font-size: 14px;">Dear Sir,</p>
+        <p style="margin: 0 0 10px; font-size: 14px;">
+          A product has been <strong style="color:#dc2626;">REJECTED</strong> by the ${roleLabel} team on
+          <strong>${formattedDate}</strong> at <strong>${formattedTime}</strong>.
+        </p>
+
+        <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 16px;">
+          <thead>
+            <tr style="background: #dc2626; color: #fff;">
+              <th style="padding: 10px; text-align: center; border: 1px solid #dc2626;">Customer</th>
+              <th style="padding: 10px; text-align: center; border: 1px solid #dc2626;">Vendor Code</th>
+              <th style="padding: 10px; text-align: center; border: 1px solid #dc2626;">Part No.</th>
+              <th style="padding: 10px; text-align: center; border: 1px solid #dc2626;">Part Description</th>
+              <th style="padding: 10px; text-align: center; border: 1px solid #dc2626;">Series</th>
+              <th style="padding: 10px; text-align: center; border: 1px solid #dc2626;">Tube Length</th>
+              <th style="padding: 10px; text-align: center; border: 1px solid #dc2626;">Part Type</th>
+              <th style="padding: 10px; text-align: center; border: 1px solid #dc2626;">Rev No</th>
+              <th style="padding: 10px; text-align: center; border: 1px solid #dc2626;">Rejected By</th>
+              <th style="padding: 10px; text-align: center; border: 1px solid #dc2626;">Rejection Remark</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="background: #ffffff;">
+              <td style="padding: 10px; text-align: center; border: 1px solid #fca5a5;">${customerName || "—"}</td>
+              <td style="padding: 10px; text-align: center; border: 1px solid #fca5a5;">${vendorCode || "—"}</td>
+              <td style="padding: 10px; text-align: center; border: 1px solid #fca5a5; font-weight: bold;">${partNumber || "—"}</td>
+              <td style="padding: 10px; text-align: center; border: 1px solid #fca5a5;">${partDescription || "—"}</td>
+              <td style="padding: 10px; text-align: center; border: 1px solid #fca5a5;">${series || "—"}</td>
+              <td style="padding: 10px; text-align: center; border: 1px solid #fca5a5;">${tubeLength || "—"}</td>
+              <td style="padding: 10px; text-align: center; border: 1px solid #fca5a5;">${partType || "—"}</td>
+              <td style="padding: 10px; text-align: center; border: 1px solid #fca5a5;">${revNo || "—"}</td>
+              <td style="padding: 10px; text-align: center; border: 1px solid #fca5a5;">${rejectedBy || "—"}</td>
+              <td style="padding: 10px; text-align: center; border: 1px solid #fca5a5; color: #dc2626; font-style: italic;">${rejectionRemark || "No remark provided"}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p style="margin: 20px 0 4px; font-size: 14px; color: #555;">Please take necessary action on this rejection.</p>
+        <p style="margin: 4px 0 4px; font-size: 14px;">Regards,</p>
+        <p style="margin: 0; font-size: 14px;"><strong>${rejectedBy}</strong> (${roleLabel} Team)</p>
+      </div>
+    </div>
+  `;
+};
+
+// ============================================================
+// PENDING APPROVAL REMINDER EMAIL TEMPLATE
+// ============================================================
+export const pendingApprovalReminderTemplate = (data) => {
+  const {
+    pendingType,   // 'Production Approval' or 'Quality Verification'
+    products,      // array of { partNumber, customerName, daysPending, createdAt }
+  } = data;
+
+  const formattedDate = new Date().toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    timeZone: "Asia/Kolkata",
+  });
+
+  const rows = products.map(p => `
+    <tr style="background: #ffffff;">
+      <td style="padding: 10px; text-align: center; border: 1px solid #fcd34d; font-weight: bold;">${p.partNumber || "—"}</td>
+      <td style="padding: 10px; text-align: center; border: 1px solid #fcd34d;">${p.customerName || "—"}</td>
+      <td style="padding: 10px; text-align: center; border: 1px solid #fcd34d;">${p.createdAt || "—"}</td>
+      <td style="padding: 10px; text-align: center; border: 1px solid #fcd34d; color: #dc2626; font-weight: bold;">${p.daysPending} day(s)</td>
+    </tr>
+  `).join("");
+
+  return `
+    <div style="font-family: Arial, sans-serif; color: #000000; max-width: 100%; margin: 0 auto; padding: 24px;">
+
+      <div style="background-color: #d97706; padding: 16px 24px; border-radius: 6px 6px 0 0;">
+        <h2 style="color: #ffffff; margin: 0; font-size: 20px;">⏳ Pending ${pendingType} Reminder</h2>
+      </div>
+
+      <div style="border: 1px solid #d97706; border-top: none; border-radius: 0 0 6px 6px; padding: 24px; background: #fffbeb;">
+        <p style="margin: 0 0 10px; font-size: 14px;">Dear Sir/Ma'am,</p>
+        <p style="margin: 0 0 16px; font-size: 14px;">
+          The following <strong>${products.length}</strong> product(s) have been pending
+          <strong>${pendingType}</strong> for <strong style="color:#dc2626;">more than 3 days</strong>
+          as of <strong>${formattedDate}</strong>. Please take immediate action.
+        </p>
+
+        <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+          <thead>
+            <tr style="background: #d97706; color: #fff;">
+              <th style="padding: 10px; text-align: center; border: 1px solid #d97706;">Part Number</th>
+              <th style="padding: 10px; text-align: center; border: 1px solid #d97706;">Customer</th>
+              <th style="padding: 10px; text-align: center; border: 1px solid #d97706;">Added On</th>
+              <th style="padding: 10px; text-align: center; border: 1px solid #d97706;">Days Pending</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows}
+          </tbody>
+        </table>
+
+        <p style="margin: 20px 0 4px; font-size: 14px; color: #555;">
+          Please log in to the system and complete the ${pendingType.toLowerCase()} at the earliest.
+        </p>
+        <p style="margin: 4px 0 4px; font-size: 14px;">Regards,</p>
+        <p style="margin: 0; font-size: 14px;"><strong>Product Management System</strong></p>
+      </div>
+    </div>
+  `;
+};
