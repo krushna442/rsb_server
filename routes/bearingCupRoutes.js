@@ -2,15 +2,16 @@
 import express from 'express';
 import { protectRoute } from '../middlewares/authMiddleware.js';
 import {
-  getPlanByDate, getAvailableDates, upsertPlan, getPlanSummary, exportPlan
+  getPlanByDate, getAvailableDates, upsertPlan, getPlanSummary, exportPlan, getJtTypeSummary
 } from '../controllers/bearingCupController.js';
 
 const router = express.Router();
 
-router.get('/dates',    protectRoute, getAvailableDates);
-router.get('/summary',  protectRoute, getPlanSummary);
-router.get('/export',   protectRoute, exportPlan);
-router.get('/',         protectRoute, getPlanByDate);
-router.put('/',         protectRoute, upsertPlan);
+router.get('/dates',      protectRoute, getAvailableDates);
+router.get('/summary',    protectRoute, getPlanSummary);
+router.get('/export',     protectRoute, exportPlan);
+router.get('/jt-summary', protectRoute, getJtTypeSummary);
+router.get('/',           protectRoute, getPlanByDate);
+router.put('/',           protectRoute, upsertPlan);
 
 export default router;

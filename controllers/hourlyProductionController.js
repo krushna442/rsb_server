@@ -125,3 +125,51 @@ export const getAvailableDates = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
+// ── GET /api/hourly-production/tube-length-summary?from=YYYY-MM-DD&to=YYYY-MM-DD ──
+// Returns per-day, per-tube_length quantity aggregated; also includes a grand total
+export const getTubeLengthSummary = async (req, res) => {
+  try {
+    const { from, to } = req.query;
+    if (!from || !to) return res.status(400).json({ success: false, message: 'from and to dates are required' });
+
+    // Row-level detail: date + tube_length + part_type + total qty
+    const rows = await query(
+      `SELECT
+         production_date,
+         COALESCE(NULLIF(TRIM(tube_length), ''), '(blank)') AS tube_length,
+         SUM(quantity) AS qty
+       FROM hourly_production
+       WHERE production_date BETWEEN ? AND ?
+         AND tube_length IS NOT NULL AND TRIM(tube_length) != ''
+       GROUP BY production_date, tube_length
+       ORDER BY production_date ASC, tube_length ASC`,
+      [from, to]
+    );
+
+    // Shape: { byDate: { 'YYYY-MM-DD': [{ tube_length, qty }] }, totals: [{ tube_length, qty }] }
+    const byDate = {};
+    const totalsMap = {};
+
+    rows.forEach(r => {
+      const d = r.production_date instanceof Date
+        ? r.production_date.toISOString().slice(0, 10)
+        : String(r.production_date).slice(0, 10);
+      const tl = r.tube_length;
+      const qty = Number(r.qty) || 0;
+
+      if (!byDate[d]) byDate[d] = [];
+      byDate[d].push({ tube_length: tl, qty });
+
+      totalsMap[tl] = (totalsMap[tl] || 0) + qty;
+    });
+
+    const totals = Object.entries(totalsMap)
+      .map(([tube_length, qty]) => ({ tube_length, qty }))
+      .sort((a, b) => a.tube_length.localeCompare(b.tube_length));
+
+    res.json({ success: true, byDate, totals, from, to });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};

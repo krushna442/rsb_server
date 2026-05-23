@@ -217,3 +217,57 @@ export const exportPlan = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
+// ── GET /api/bearing-cup-plans/jt-summary?from=YYYY-MM-DD&to=YYYY-MM-DD ──────
+// Returns per JT type: G qty, NG qty, Total qty — for a date range
+export const getJtTypeSummary = async (req, res) => {
+  try {
+    const { from, to } = req.query;
+    if (!from || !to) return res.status(400).json({ success: false, message: 'from and to dates are required' });
+
+    // Detailed rows: each day's breakdown per jt_type and type (G/NG)
+    const rows = await query(
+      `SELECT plan_date, jt_type, type, total_qty
+       FROM bearing_cup_plans
+       WHERE plan_date BETWEEN ? AND ?
+         AND jt_type IS NOT NULL AND jt_type != ''
+       ORDER BY plan_date ASC, jt_type ASC, type ASC`,
+      [from, to]
+    );
+
+    // byDate: { 'YYYY-MM-DD': { 'JT_TYPE': { G: 0, NG: 0 } } }
+    const byDate = {};
+    // totalsMap: { 'JT_TYPE': { G: 0, NG: 0 } }
+    const totalsMap = {};
+
+    rows.forEach(r => {
+      const d = r.plan_date instanceof Date
+        ? r.plan_date.toISOString().slice(0, 10)
+        : String(r.plan_date).slice(0, 10);
+      const jt = r.jt_type;
+      const type = r.type; // 'G' or 'NG'
+      const qty = Number(r.total_qty) || 0;
+
+      if (!byDate[d]) byDate[d] = {};
+      if (!byDate[d][jt]) byDate[d][jt] = { G: 0, NG: 0 };
+      byDate[d][jt][type] = (byDate[d][jt][type] || 0) + qty;
+
+      if (!totalsMap[jt]) totalsMap[jt] = { G: 0, NG: 0 };
+      totalsMap[jt][type] = (totalsMap[jt][type] || 0) + qty;
+    });
+
+    // Flatten totals into array sorted by jt_type
+    const totals = Object.entries(totalsMap)
+      .map(([jt_type, v]) => ({
+        jt_type,
+        G: v.G || 0,
+        NG: v.NG || 0,
+        total: (v.G || 0) + (v.NG || 0),
+      }))
+      .sort((a, b) => a.jt_type.localeCompare(b.jt_type));
+
+    res.json({ success: true, byDate, totals, from, to });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
