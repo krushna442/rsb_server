@@ -1,6 +1,7 @@
 // controllers/bearingCupController.js
 import { query, queryOne, execute } from '../db/db.js';
 import ExcelJS from 'exceljs';
+import { emitToAll } from '../utils/socket.js';
 
 const parseUser = (req) => req.user?.username || req.user?.name || 'system';
 
@@ -128,6 +129,7 @@ export const upsertPlan = async (req, res) => {
     }
     const updated = await query('SELECT * FROM bearing_cup_plans WHERE plan_date = ? ORDER BY jt_type ASC, type ASC', [date]);
     res.json({ success: true, data: updated });
+    emitToAll('bearing-cup:changed', { action: 'upsert', date });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

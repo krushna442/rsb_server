@@ -1,5 +1,6 @@
 
 import jwt from 'jsonwebtoken';
+import { emitToAll } from '../utils/socket.js';
 import { 
   createUser, 
   findUserByEmail, 
@@ -57,6 +58,7 @@ export const register = async (req, res) => {
         message: 'User created successfully',
         data: user
       });
+      emitToAll('users:changed', { action: 'create' });
     } else {
       res.status(400).json({ success: false, message: 'Invalid user data received' });
     }
@@ -215,6 +217,7 @@ export const updateUserProfile = async (req, res) => {
         message: 'User updated successfully',
         data: updatedUser 
     });
+    emitToAll('users:changed', { action: 'update' });
   } catch (error) {
     console.error("UpdateUser Error:", error);
     res.status(500).json({ success: false, message: 'Server error updating user profile' });
@@ -238,6 +241,7 @@ export const deactivateUser = async (req, res) => {
         message: 'User deactivated successfully',
         data: updatedUser 
     });
+    emitToAll('users:changed', { action: 'deactivate' });
   } catch (error) {
     console.error("DeactivateUser Error:", error);
     res.status(500).json({ success: false, message: 'Server error deactivating user' });
@@ -252,6 +256,7 @@ export const deleteUser = async (req, res) => {
     const userIdToDelete = req.params.id;
     await deleteUserById(userIdToDelete);
     res.status(200).json({ success: true, message: 'User deleted successfully' });
+    emitToAll('users:changed', { action: 'delete' });
   } catch (error) {
     console.error("DeleteUser Error:", error);
     res.status(500).json({ success: false, message: 'Server error deleting user' });

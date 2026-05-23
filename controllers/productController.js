@@ -18,6 +18,7 @@ import {
 import { findEmailsByRoles } from '../models/userModel.js';
 import { sendMail } from '../utils/mailer.js';
 import { newProductTemplate, productActiveTemplate, productionApprovalTemplate, qualityApprovalTemplate, productRejectionTemplate } from '../utils/emailTemplates.js';
+import { emitToAll } from '../utils/socket.js';
 
 export const listProducts = async (req, res) => {
   try {
@@ -88,6 +89,7 @@ export const addProduct = async (req, res) => {
     }
 
     res.status(201).json({ success: true, data });
+    emitToAll('products:changed', { action: 'create' });
   } catch (error) {
     console.error('addProduct error:', error);
     if (error.code === 'ER_DUP_ENTRY') {
@@ -101,6 +103,7 @@ export const editProduct = async (req, res) => {
   try {
     const data = await updateProduct(req.params.id, req.body, req.user?.username ?? null, req.user?.role ?? null);
     res.json({ success: true, data });
+    emitToAll('products:changed', { action: 'update' });
   } catch (error) {
     console.error('editProduct error:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -302,6 +305,7 @@ if(status=="approved"){
   }
 
     res.json({ success: true, data });
+    emitToAll('products:changed', { action: 'quality-verify' });
   } catch (error) {
     console.error("qualityVerifyProduct error:", error);
     res.status(400).json({ success: false, message: error.message });
@@ -335,7 +339,7 @@ export const inactiveProduct = async (req, res) => {
     }
 
     res.json({ success: true, data });
-
+    emitToAll('products:changed', { action: 'inactive' });
   } catch (error) {
     console.error("inactiveProduct error:", error);
     res.status(400).json({ success: false, message: error.message });
@@ -374,6 +378,7 @@ export const importProducts = async (req, res) => {
     }
 
     res.json({ success: true, data });
+    emitToAll('products:changed', { action: 'import' });
   } catch (error) {
     console.error('importProducts error:', error);
     res.status(500).json({ success: false, message: error.message });
@@ -384,6 +389,7 @@ export const removeProduct = async (req, res) => {
   try {
     await deleteProduct(req.params.id);
     res.json({ success: true, message: 'Deleted successfully' });
+    emitToAll('products:changed', { action: 'delete' });
   } catch (error) {
     console.error('removeProduct error:', error);
     res.status(500).json({ success: false, message: error.message });

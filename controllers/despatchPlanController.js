@@ -1,6 +1,7 @@
 // controllers/despatchPlanController.js
 import { query } from '../db/db.js';
 import { findDespatchMailEmails } from '../models/userModel.js';
+import { emitToAll } from '../utils/socket.js';
 import nodemailer from 'nodemailer';
 import ExcelJS from 'exceljs';
 import path from 'path';
@@ -458,6 +459,7 @@ export async function savePlan(req, res) {
     }
 
     res.json({ success: true, message: 'Plan saved' });
+    emitToAll('despatch-plan:changed', { action: 'save' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, message: err.message });
@@ -590,6 +592,7 @@ export async function updateScanData(req, res) {
 
     const updatedPlan = await fetchFullPlan(plan_date);
     res.json({ success: true, plan: updatedPlan, newlyCompleted: newlyCompleted.map(v => v.vehicle_label) });
+    emitToAll('despatch-plan:changed', { action: 'update-pallets', plan_date });
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, message: err.message });
@@ -610,6 +613,7 @@ export async function markVehicleComplete(req, res) {
       sendCompletionMail(completedVehicles, v.plan_date).catch(console.error);
     }
     res.json({ success: true });
+    emitToAll('despatch-plan:changed', { action: 'complete-vehicle' });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -844,6 +848,7 @@ export async function updateSingleVehicle(req, res) {
     }
     
     res.json({ success: true, message: 'Vehicle updated' });
+    emitToAll('despatch-plan:changed', { action: 'edit-vehicle' });
   } catch (err) {
     console.error('updateSingleVehicle error:', err);
     res.status(500).json({ success: false, message: err.message });

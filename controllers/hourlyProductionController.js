@@ -1,5 +1,6 @@
 // controllers/hourlyProductionController.js
 import { query, queryOne, execute } from '../db/db.js';
+import { emitToAll } from '../utils/socket.js';
 
 const parseUser = (req) => req.user?.username || req.user?.name || 'system';
 const PART_TYPES = ['front', 'rear', 'ia'];
@@ -39,6 +40,7 @@ export const addRecord = async (req, res) => {
     );
     const newRow = await queryOne('SELECT * FROM hourly_production WHERE id = ?', [result.insertId]);
     res.status(201).json({ success: true, data: newRow });
+    emitToAll('hourly-production:changed', { action: 'create', date: production_date });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -56,6 +58,7 @@ export const updateRecord = async (req, res) => {
     );
     const row = await queryOne('SELECT * FROM hourly_production WHERE id = ?', [id]);
     res.json({ success: true, data: row });
+    if (row) emitToAll('hourly-production:changed', { action: 'update', date: row.production_date instanceof Date ? row.production_date.toISOString().slice(0,10) : String(row.production_date).slice(0,10) });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -64,8 +67,14 @@ export const updateRecord = async (req, res) => {
 // ── DELETE /api/hourly-production/:id ────────────────────────────────────────
 export const deleteRecord = async (req, res) => {
   try {
+    // Fetch date before deleting so we can include it in the event payload
+    const existing = await queryOne('SELECT production_date FROM hourly_production WHERE id = ?', [req.params.id]);
     await execute('DELETE FROM hourly_production WHERE id = ?', [req.params.id]);
     res.json({ success: true, message: 'Deleted' });
+    if (existing) {
+      const date = existing.production_date instanceof Date ? existing.production_date.toISOString().slice(0,10) : String(existing.production_date).slice(0,10);
+      emitToAll('hourly-production:changed', { action: 'delete', date });
+    }
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
