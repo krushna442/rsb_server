@@ -14,11 +14,37 @@ const EXCLUDED_PRODUCT_TYPES = ['F1', 'F5'];
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 function getPlanDate(d = new Date()) {
-  const utcMs = d.getTime();
-  const istMs = utcMs + 5.5 * 60 * 60 * 1000;
-  const istDate = new Date(istMs);
-  if (istDate.getHours() < 6) istDate.setDate(istDate.getDate() - 1);
-  return istDate.toISOString().slice(0, 10);
+  let dateObj;
+  if (typeof d === 'string') {
+    const match = d.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/);
+    if (match) {
+      const [_, yyyy, mm, dd, hh, min, ss] = match;
+      dateObj = new Date(Date.UTC(
+        parseInt(yyyy, 10),
+        parseInt(mm, 10) - 1,
+        parseInt(dd, 10),
+        parseInt(hh, 10),
+        parseInt(min, 10),
+        parseInt(ss, 10)
+      ));
+    } else {
+      dateObj = new Date(d);
+    }
+  } else {
+    const utcMs = d.getTime();
+    const istMs = utcMs + 5.5 * 60 * 60 * 1000;
+    dateObj = new Date(istMs);
+  }
+
+  const hour = dateObj.getUTCHours();
+  if (hour < 6) {
+    dateObj.setUTCDate(dateObj.getUTCDate() - 1);
+  }
+
+  const yyyy = dateObj.getUTCFullYear();
+  const mm = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(dateObj.getUTCDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 function buildTransporter() {
@@ -59,16 +85,18 @@ async function fetchFullPlan(plan_date) {
 
 /** Fetch all incomplete vehicles from past plans */
 async function fetchPendingVehicles(beforeDate) {
+  const cutoffDate = getPlanDate(new Date(Date.now() - 48 * 60 * 60 * 1000));
+
   const vehicles = await query(
     `SELECT dv.*, dp.plan_date 
      FROM despatch_vehicles dv
      JOIN despatch_plans dp ON dp.id = dv.plan_id
-     WHERE dp.plan_date < ? AND dv.is_completed = 0
+     WHERE dp.plan_date < ? AND dp.plan_date >= ? AND dv.is_completed = 0
      ORDER BY dp.plan_date ASC, 
               CASE WHEN dv.priority_number IS NULL THEN 1 ELSE 0 END, 
               dv.priority_number ASC, 
               dv.vehicle_label ASC`,
-    [beforeDate]
+    [beforeDate, cutoffDate]
   );
   
   for (const v of vehicles) {
@@ -161,92 +189,212 @@ async function sendCompletionMail(allCompletedVehicles, plan_date) {
  * Increments filled_quantity on each pallet row in the DB.
  * Returns list of newly-completed vehicle labels.
  */
-export async function fillPalletsFromScan(part_no, customer_name, scan_qty = 1, product_type = null) {
+export async function fillPalletsFromScan(part_no, customer_name, scan_qty = 1, product_type = null, scan_date = null) {
   try {
-    // Exclude F1 and F5 product types from despatch count
-    if (product_type && EXCLUDED_PRODUCT_TYPES.includes((product_type || '').trim().toUpperCase())) {
-      console.log(`[fillPalletsFromScan] Skipping scan for excluded product_type: ${product_type}`);
+    console.log('\n================ fillPalletsFromScan START ================');
+    console.log('[INPUT]', {
+      part_no,
+      customer_name,
+      scan_qty,
+      product_type,
+      scan_date
+    });
+
+    if (
+      product_type &&
+      EXCLUDED_PRODUCT_TYPES.includes(
+        (product_type || '').trim().toUpperCase()
+      )
+    ) {
+      console.log(
+        `[fillPalletsFromScan] Skipping excluded product type: ${product_type}`
+      );
       return [];
     }
-    const today = getPlanDate();
 
-    // Gather today's plan + all previous pending vehicles
+    const today = getPlanDate(scan_date || new Date());
+    console.log('[PLAN DATE]', today);
+
     const plan = await fetchFullPlan(today);
     const prevPendingVehicles = await fetchPendingVehicles(today);
 
-    if (!plan && prevPendingVehicles.length === 0) return [];
+    console.log('[PLAN FOUND]', !!plan);
+    console.log('[TODAY VEHICLES]', plan?.vehicles?.length || 0);
+    console.log('[PREV PENDING]', prevPendingVehicles.length);
 
-    // Build ordered vehicle list: previous pending first, then today's by priority
+    if (!plan && prevPendingVehicles.length === 0) {
+      console.log('[EXIT] No plan / no pending vehicles');
+      return [];
+    }
+
     const todayVehicles = plan ? plan.vehicles : [];
     const orderedVehicles = [...prevPendingVehicles, ...todayVehicles];
 
     const normalPn = (part_no || '').trim().toUpperCase();
     const normalCust = (customer_name || '').trim().toUpperCase();
 
+    console.log('[NORMALIZED INPUT]', {
+      normalPn,
+      normalCust
+    });
+
     let remaining = scan_qty;
     const newlyCompletedVehicleIds = [];
 
     for (const v of orderedVehicles) {
       if (remaining <= 0) break;
+
       const vCust = (v.customer || '').trim().toUpperCase();
-      if (vCust !== normalCust) continue;
+
+      console.log('\n--- VEHICLE CHECK ---');
+      console.log({
+        vehicleId: v.id,
+        vehicleLabel: v.vehicle_label,
+        vehicleCustomer: vCust,
+        scanCustomer: normalCust
+      });
+
+      if (vCust !== normalCust) {
+        console.log('[SKIP VEHICLE] Customer mismatch');
+        continue;
+      }
+
+      console.log('[CUSTOMER MATCH]');
 
       for (const p of v.pallets) {
         if (remaining <= 0) break;
+
         const pPn = (p.part_number || '').trim().toUpperCase();
-        if (pPn !== normalPn) continue;
+
+        console.log('Pallet:', {
+          palletId: p.id,
+          palletLabel: p.pallet_label,
+          palletPartNo: pPn,
+          scanPartNo: normalPn,
+          filled: p.filled_quantity,
+          target: p.target_qty
+        });
+
+        if (pPn !== normalPn) {
+          console.log('[SKIP PALLET] Part number mismatch');
+          continue;
+        }
+
+        console.log('[PART MATCH]');
 
         const currentFilled = parseInt(p.filled_quantity) || 0;
         const target = parseInt(p.target_qty) || 0;
-        if (currentFilled >= target && target > 0) continue; // already full
 
-        const canTake = target > 0 ? target - currentFilled : remaining;
+        if (currentFilled >= target && target > 0) {
+          console.log('[SKIP PALLET] Already full', {
+            currentFilled,
+            target
+          });
+          continue;
+        }
+
+        const canTake = target > 0
+          ? target - currentFilled
+          : remaining;
+
         const take = Math.min(remaining, canTake);
-        const newFilled = currentFilled + take;
-        const isFulfilled = target > 0 && newFilled >= target ? 1 : 0;
 
-        const currentFilledToday = parseInt(p.filled_today) || 0;
+        const newFilled = currentFilled + take;
+
+        const isFulfilled =
+          target > 0 && newFilled >= target ? 1 : 0;
+
+        const currentFilledToday =
+          parseInt(p.filled_today) || 0;
+
         const newFilledToday = currentFilledToday + take;
+
+        console.log('[UPDATING PALLET]', {
+          palletId: p.id,
+          before: currentFilled,
+          after: newFilled,
+          take,
+          remainingBefore: remaining
+        });
+
         await query(
-          `UPDATE despatch_pallets SET filled_quantity = ?, filled_today = ?, is_fulfilled = ? WHERE id = ?`,
-          [newFilled, newFilledToday, isFulfilled, p.id]
+          `
+          UPDATE despatch_pallets
+          SET filled_quantity = ?,
+              filled_today = ?,
+              is_fulfilled = ?
+          WHERE id = ?
+          `,
+          [
+            newFilled,
+            newFilledToday,
+            isFulfilled,
+            p.id
+          ]
         );
-        p.filled_quantity = newFilled;
-        p.filled_today = newFilledToday;
-        p.is_fulfilled = isFulfilled;
+
         remaining -= take;
+
+        console.log('[UPDATED]', {
+          palletId: p.id,
+          remainingAfter: remaining
+        });
       }
 
-      // Check if vehicle is now fully done
       const freshPallets = await query(
-        `SELECT * FROM despatch_pallets WHERE vehicle_id = ?`, [v.id]
+        `SELECT * FROM despatch_pallets WHERE vehicle_id = ?`,
+        [v.id]
       );
-      const allFulfilled = freshPallets.length > 0 && freshPallets.every(p => p.is_fulfilled);
+
+      const allFulfilled =
+        freshPallets.length > 0 &&
+        freshPallets.every(p => p.is_fulfilled);
+
+      console.log('[VEHICLE STATUS]', {
+        vehicleId: v.id,
+        allFulfilled
+      });
+
       if (allFulfilled && !v.is_completed) {
+        console.log('[MARK COMPLETE]', v.vehicle_label);
+
         await query(
-          `UPDATE despatch_vehicles SET is_completed = 1, completed_at = NOW() WHERE id = ?`, [v.id]
+          `
+          UPDATE despatch_vehicles
+          SET is_completed = 1,
+              completed_at = NOW()
+          WHERE id = ?
+          `,
+          [v.id]
         );
+
         newlyCompletedVehicleIds.push(v.id);
       }
     }
 
-    // Send mail for any newly completed vehicles
-    if (newlyCompletedVehicleIds.length > 0) {
-      const allCompletedToday = [];
-      const freshVehicles = await query(
-        `SELECT dv.*, dp.plan_date FROM despatch_vehicles dv JOIN despatch_plans dp ON dp.id = dv.plan_id WHERE dv.id IN (?)`,
-        [newlyCompletedVehicleIds]
+    if (remaining > 0) {
+      console.log(
+        '[WARNING] Scan qty remaining unallocated:',
+        remaining
       );
-      for (const fv of freshVehicles) {
-        fv.pallets = await query(`SELECT * FROM despatch_pallets WHERE vehicle_id = ?`, [fv.id]);
-        allCompletedToday.push(fv);
-      }
-      sendCompletionMail(allCompletedToday, today).catch(console.error);
     }
 
+    console.log(
+      '[COMPLETED VEHICLES]',
+      newlyCompletedVehicleIds
+    );
+
+    console.log(
+      '================ fillPalletsFromScan END ================\n'
+    );
+
     return newlyCompletedVehicleIds;
+
   } catch (err) {
-    console.error('fillPalletsFromScan error:', err);
+    console.error(
+      'fillPalletsFromScan error:',
+      err
+    );
     return [];
   }
 }
@@ -400,7 +548,10 @@ export async function getPlanByDate(req, res) {
     const plan_date = req.query.date || getPlanDate();
     const plan = await fetchFullPlan(plan_date);
 
-    const incompleteFromPrev = await fetchPendingVehicles(plan_date);
+    const isToday = plan_date === getPlanDate();
+    const incompleteFromPrev = (isToday && plan)
+      ? await fetchPendingVehicles(plan_date)
+      : [];
 
     res.json({ success: true, plan, incompleteFromPrev });
   } catch (err) {

@@ -575,13 +575,19 @@ export const createScan = async (scanData, masterProduct, created_by = null) => 
         JSON.stringify(mismatched),
       ]
     );
-    
+    console.log('[createScan → fillPalletsFromScan]', {
+  finalPartNo,
+  customer: scanData.customer_name,
+  status
+});
     // ── Auto-fill despatch pallets on successful pass scan ──────────────────
     if (status === 'pass') {
       fillPalletsFromScan(
         finalPartNo,
         scanData.customer_name,
-        1 // each scan = 1 unit
+        1, // each scan = 1 unit
+        scanData.product_type,
+        dispatchDate
       ).catch(err => console.error('fillPalletsFromScan error in createScan:', err));
     }
 

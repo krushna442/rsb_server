@@ -182,7 +182,7 @@ export const uploadControlPlanChunkFile = async (req, res) => {
   try {
     const uploadId = req.query.uploadId || req.body.uploadId;
     const chunkIndex = req.query.chunkIndex || req.body.chunkIndex;
-    const { totalChunks, fileName, name, line, rev_no, rev_date, language, sequence_number } = req.body;
+    const { totalChunks, fileName, name, line, rev_no, rev_date, language, sequence_number, remarks } = req.body;
 
     if (!req.file) return res.status(400).json({ success: false, message: 'Chunk file missing' });
 
