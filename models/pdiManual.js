@@ -31,15 +31,15 @@ export const findPDIReportById = async (id) => {
 };
 
 // ─── CREATE ──────────────────────────────────────────────
-export const createPDIReport = async (name, file_path, user_id = null) => {
+export const createPDIReport = async (name, file_path, user_id = null, part_number = null) => {
   try {
     if (!name) throw new Error('name is required');
     if (!file_path) throw new Error('file_path is required');
 
     const result = await execute(
-      `INSERT INTO pdi_report (name, file_path, user_id)
-       VALUES (?, ?, ?)`,
-      [name, file_path, user_id]
+      `INSERT INTO pdi_report (name, file_path, part_number, user_id)
+       VALUES (?, ?, ?, ?)`,
+      [name, file_path, part_number || null, user_id]
     );
 
     return await findPDIReportById(result.insertId);

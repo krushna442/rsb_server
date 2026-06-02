@@ -413,6 +413,7 @@ async function createPDIReportTable() {
 
         name          VARCHAR(255) NOT NULL,
         file_path     TEXT NOT NULL,
+        part_number   VARCHAR(100) NULL,
 
         user_id       INT UNSIGNED NULL,
 
@@ -425,6 +426,15 @@ async function createPDIReportTable() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
+    // Add part_number column if it doesn't exist yet (safe migration)
+    try {
+      await query(`ALTER TABLE pdi_report ADD COLUMN part_number VARCHAR(100) NULL AFTER file_path;`);
+    } catch (alterErr) {
+      // Column already exists — ignore duplicate column error
+      if (!alterErr.message?.includes('Duplicate column')) {
+        console.warn('[pdi_report migration] Warning:', alterErr.message);
+      }
+    }
     console.log('✅ user_documents table created/verified');
   } catch (error) {
     console.error('❌ Error creating user_documents table:', error.message);

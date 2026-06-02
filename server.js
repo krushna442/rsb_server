@@ -37,7 +37,7 @@ const PORT = process.env.PORT || 5000;
 
 // ── Allowed origins (same list used for both REST CORS and Socket.IO CORS) ────
 const ALLOWED_ORIGINS = [
-  "http://192.168.1.3:3000",
+  "http://192.168.1.4:3000",
   "http://10.88.69.17:3000",
   "http://172.22.39.17:3000",
   "http://10.99.45.17:3000",
@@ -134,7 +134,7 @@ async function startServer() {
     httpServer.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
       console.log(`[Socket.IO] WebSocket server ready`);
-      // initShiftReportCrons();
+      initShiftReportCrons();
 
       // 6:05 AM IST daily despatch Excel report (IST = UTC+5:30 → UTC 00:35)
       cron.schedule('35 0 * * *', async () => {

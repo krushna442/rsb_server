@@ -16,8 +16,7 @@ function makeStorage(subfolder) {
   });
 }
 
-const ALLOWED = [
-  'image/jpeg', 'image/png', 'image/svg+xml',
+const ALLOWED_MIME_TYPES = [
   'application/pdf',
   'application/msword',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -26,8 +25,11 @@ const ALLOWED = [
 ];
 
 const fileFilter = (_req, file, cb) => {
-  if (ALLOWED.includes(file.mimetype)) cb(null, true);
-  else cb(new Error('Invalid file type. Allowed: jpg, png, svg, pdf, doc, docx, xls, xlsx'));
+  if (file.mimetype.startsWith('image/') || ALLOWED_MIME_TYPES.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error('Invalid file type. Allowed: images, pdf, doc, docx, xls, xlsx'));
+  }
 };
 
 export const uploadDrawing     = multer({ storage: makeStorage('drawings'),      fileFilter, limits: { fileSize: 20 * 1024 * 1024 } });

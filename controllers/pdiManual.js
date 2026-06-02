@@ -41,6 +41,7 @@ export const getPDIReport = async (req, res) => {
 export const createPDIReportHandler = async (req, res) => {
   try {
     const name = (req.body.name || '').trim();
+    const part_number = (req.body.part_number || '').trim() || null;
 
     if (!name) {
       return res.status(400).json({
@@ -61,7 +62,8 @@ export const createPDIReportHandler = async (req, res) => {
     const data = await createPDIReport(
       name,
       filePath,
-      req.user?.id ?? null
+      req.user?.id ?? null,
+      part_number
     );
 
     res.status(201).json({ success: true, data });

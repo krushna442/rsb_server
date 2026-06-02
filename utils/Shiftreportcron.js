@@ -1753,6 +1753,105 @@ async function sendHourlyProductionReport() {
   }
 }
 
+async function sendBearingCupProductionReport() {
+  const now = new Date();
+  const prodDateObj = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const reportDate = prodDateObj.toISOString().slice(0, 10);
+
+  console.log(`[BearingCupProductionReport] Starting for date: ${reportDate}`);
+
+  try {
+    const recipients = await getRecipients('bearing_cup_mail');
+    if (!recipients.length) {
+      console.warn('[BearingCupProductionReport] No recipients found for bearing_cup_mail');
+      return;
+    }
+
+    const rows = await query(
+      `SELECT * FROM bearing_cup_plans WHERE plan_date = ? ORDER BY jt_type ASC, type ASC`,
+      [reportDate]
+    );
+
+    if (!rows.length) {
+      console.warn('[BearingCupProductionReport] No records found for date:', reportDate);
+      return;
+    }
+
+    let tableHTML = `
+      <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; font-family: sans-serif; width: 100%; max-width: 800px;">
+        <thead style="background-color: #f1f5f9;">
+          <tr>
+            <th>JT Type</th>
+            <th>Type</th>
+            <th>Previous Diff</th>
+            <th>Shift 1</th>
+            <th>Shift 2</th>
+            <th>Shift 3</th>
+            <th>Actual</th>
+            <th>Total Target</th>
+            <th>Difference</th>
+          </tr>
+        </thead>
+        <tbody>
+    `;
+
+    let totalTarget = 0;
+    let totalActual = 0;
+    rows.forEach(r => {
+      const diff = r.total_qty - r.target;
+      totalTarget += (Number(r.target) || 0);
+      totalActual += (Number(r.total_qty) || 0);
+      tableHTML += `
+        <tr>
+          <td>${r.jt_type}</td>
+          <td style="text-align: center;">${r.type}</td>
+          <td style="text-align: center;">${r.previous_diff || 0}</td>
+          <td style="text-align: center;">${r.shift1_qty || 0}</td>
+          <td style="text-align: center;">${r.shift2_qty || 0}</td>
+          <td style="text-align: center;">${r.shift3_qty || 0}</td>
+          <td style="text-align: center;">${r.target || 0}</td>
+          <td style="text-align: center;">${r.total_qty || 0}</td>
+          <td style="text-align: center; font-weight: bold; color: ${diff < 0 ? '#b91c1c' : (diff === 0 ? '#059669' : '#2563eb')};">${diff}</td>
+        </tr>
+      `;
+    });
+
+    tableHTML += `
+        </tbody>
+        <tfoot style="background-color: #f8fafc; font-weight: bold;">
+          <tr>
+            <td colspan="6" style="text-align: right;">Total:</td>
+            <td style="text-align: center;">${totalTarget}</td>
+            <td style="text-align: center;">${totalActual}</td>
+            <td style="text-align: center; color: ${totalActual - totalTarget < 0 ? '#b91c1c' : (totalActual - totalTarget === 0 ? '#059669' : '#2563eb')};">${totalActual - totalTarget}</td>
+          </tr>
+        </tfoot>
+      </table>
+    `;
+
+    const html = `
+      <div style="font-family: sans-serif; color: #333;">
+        <h2>Bearing Cup Production Daily Report</h2>
+        <p><strong>Production Date:</strong> ${prodDateObj.toLocaleDateString('en-IN')}</p>
+        <p>Please find the bearing cup production records below:</p>
+        ${tableHTML}
+        <br/>
+        <p>Best regards,<br/>RSB Dashboard System</p>
+      </div>
+    `;
+
+    await sendMail({
+      to: recipients,
+      subject: `[Bearing Cup Daily Report] ${prodDateObj.toLocaleDateString('en-IN')}`,
+      html
+    });
+
+    console.log(`[BearingCupProductionReport] Sent to: ${recipients.join(', ')}`);
+  } catch (err) {
+    console.error('[BearingCupProductionReport] Error:', err);
+  }
+}
+
 // ─────────────────────────────────────────────
 //  Init all cron jobs (IST timezone)
 //
@@ -1775,11 +1874,12 @@ export function initShiftReportCrons() {
   // Shift B ends → 22:05 IST
   cron.schedule('05 22 * * *', () => sendShiftReport(1), { timezone: 'Asia/Kolkata' });
 
-  // Shift C ends + Day report + Monthly reports + Hourly Production Report → 06:05 IST
+  // Shift C ends + Day report + Monthly reports + Hourly Production Report + Bearing Cup Production Report → 06:05 IST
   cron.schedule('05 6 * * *', async () => {
     await sendShiftReport(2);          // shift_scan_report for Shift C
     await sendDayReport();             // day_scan_report
     await sendHourlyProductionReport(); // hourly production records
+    await sendBearingCupProductionReport(); // bearing cup production records
   }, { timezone: 'Asia/Kolkata' });
 
   // Monthly reports fire on 1st of every month at 06:05 IST
@@ -1791,6 +1891,6 @@ export function initShiftReportCrons() {
   console.log('[ShiftReport] ✅ Cron jobs scheduled (IST):');
   console.log('  → Shift A report : 14:26 daily');
   console.log('  → Shift B report : 22:05 daily');
-  console.log('  → Shift C report + Day report + Hourly Prod : 06:05 daily');
+  console.log('  → Shift C report + Day report + Hourly Prod + Bearing Cup : 06:05 daily');
   console.log('  → Monthly scan + product reports : 06:05 on 1st of each month');
 }

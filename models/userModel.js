@@ -158,7 +158,7 @@ const allowedFields = [
         }
 
         if (updateData.mail_types !== undefined) {
-  const valid = ['shift_scan_report', 'day_scan_report', 'monthly_scan_report', 'monthly_product_report'];
+  const valid = ['shift_scan_report', 'day_scan_report', 'monthly_scan_report', 'monthly_product_report', 'bearing_cup_mail'];
   if (!Array.isArray(updateData.mail_types)) {
     throw new Error('mail_types must be an array');
   }
@@ -224,6 +224,7 @@ export const MAIL_TYPES = [
   'day_scan_report',    // day-wise report per part number
   'monthly_scan_report',  // monthly scan report
   'monthly_product_report', // monthly products report
+  'bearing_cup_mail',     // bearing cup production records report
 ];
 
 /**

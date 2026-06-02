@@ -110,8 +110,13 @@ export const addDrawing = async (req, res) => {
       modification_number, remarks
     } = req.body;
 
-    if (!drawing_number) {
-      return res.status(400).json({ success: false, message: 'drawing_number is required' });
+    let finalDrawingNumber = drawing_number;
+    if (customer?.toUpperCase() === 'RSB') {
+      finalDrawingNumber = part_number;
+    }
+
+    if (!finalDrawingNumber) {
+      return res.status(400).json({ success: false, message: 'drawing_number (or part_number for RSB) is required' });
     }
 
     // Support both single file upload (req.file) and multi-field upload (req.files)
@@ -141,7 +146,7 @@ export const addDrawing = async (req, res) => {
     // Check if a drawing with same drawing_number already exists (versioning)
     const existing = await queryOne(
       'SELECT id, version FROM drawings WHERE drawing_number = ? AND is_latest = 1',
-      [drawing_number]
+      [finalDrawingNumber]
     );
 
     let newVersion = 1;
@@ -150,11 +155,11 @@ export const addDrawing = async (req, res) => {
       // Mark old as not latest
       await execute(
         'UPDATE drawings SET is_latest = 0 WHERE drawing_number = ? AND is_latest = 1',
-        [drawing_number]
+        [finalDrawingNumber]
       );
       newVersion = existing.version + 1;
       // Inherit serial number from previous versions
-      const prev = await queryOne('SELECT serial_number FROM drawings WHERE drawing_number = ? LIMIT 1', [drawing_number]);
+      const prev = await queryOne('SELECT serial_number FROM drawings WHERE drawing_number = ? LIMIT 1', [finalDrawingNumber]);
       serial_number = prev?.serial_number;
     } else {
       serial_number = await generateSerialNumber(customer);
@@ -172,7 +177,7 @@ export const addDrawing = async (req, res) => {
          version, is_latest, remarks, created_by)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
       [
-        drawing_number, serial_number, shaft || null, joint || null, part_number || null,
+        finalDrawingNumber, serial_number, shaft || null, joint || null, part_number || null,
         customer || null, modification_number || null, modification_date,
         bom_path || null, file_path, newVersion, serializeRemarks(remarks), createdBy
       ]
@@ -213,13 +218,23 @@ export const editDrawing = async (req, res) => {
     if (req.body.file_path_from_chunks) file_path = req.body.file_path_from_chunks;
     if (req.body.bom_path_from_chunks)  bom_path = req.body.bom_path_from_chunks;
 
+    const finalCustomer = customer !== undefined ? customer : current.customer;
+    const finalPartNumber = part_number !== undefined ? part_number : current.part_number;
+
+    let finalDrawingNumber = current.drawing_number;
+    let finalBomPath = bom_path;
+    if (finalCustomer?.toUpperCase() === 'RSB') {
+      finalDrawingNumber = finalPartNumber;
+      finalBomPath = null;
+    }
+
     await execute(
       `UPDATE drawings
-       SET shaft=?, joint=?, part_number=?, customer=?, modification_number=?,
+       SET drawing_number=?, shaft=?, joint=?, part_number=?, customer=?, modification_number=?,
            bom=?, file_path=?, remarks=?, updated_by=?
        WHERE id = ?`,
-      [shaft || null, joint || null, part_number || null, customer || null,
-       modification_number || null, bom_path || null, file_path || null, serializeRemarks(remarks), updatedBy, id]
+      [finalDrawingNumber, shaft || null, joint || null, part_number || null, customer || null,
+       modification_number || null, finalBomPath || null, file_path || null, serializeRemarks(remarks), updatedBy, id]
     );
 
     const row = await queryOne('SELECT * FROM drawings WHERE id = ?', [id]);
@@ -254,6 +269,10 @@ export const addDrawingVersion = async (req, res) => {
 
     if (req.body.file_path_from_chunks) file_path = req.body.file_path_from_chunks;
     if (req.body.bom_path_from_chunks)  bom_path = req.body.bom_path_from_chunks;
+
+    if (existing.customer?.toUpperCase() === 'RSB') {
+      bom_path = null;
+    }
 
     const modification_date = new Date().toISOString().slice(0, 10);
 
