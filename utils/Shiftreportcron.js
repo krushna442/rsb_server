@@ -8,6 +8,7 @@ import { query } from '../db/db.js';
 import { findAllUsers } from '../models/userModel.js';
 import { findProductByPartNumber } from '../models/productModel.js';
 import { parseScanText } from '../models/parseScanText.js';
+import { getConfig } from '../models/dynamicFieldModel.js';
 
 // ─────────────────────────────────────────────
 //  Excel storage directory
@@ -166,7 +167,10 @@ function getShiftWindow(shiftIndex) {
 //  Fetch scanned_products in a time range
 // ─────────────────────────────────────────────
 async function fetchRecords(from, to) {
-  const sql = `
+  const config = await getConfig();
+  const inactive = config.inactive_customers || [];
+
+  let sql = `
     SELECT
       id, dispatch_date, shift, part_no, customer_name, product_type,
       validation_status, remarks, part_sl_no, sl_no, scanned_text,
@@ -174,9 +178,15 @@ async function fetchRecords(from, to) {
       created_at, updated_at
     FROM scanned_products
     WHERE created_at >= ? AND created_at < ?
-    ORDER BY created_at ASC
   `;
-  const rows = await query(sql, [from, to]);
+  const params = [from, to];
+  if (inactive.length > 0) {
+    sql += ` AND customer_name NOT IN (${inactive.map(() => '?').join(',')})`;
+    params.push(...inactive);
+  }
+  sql += ' ORDER BY created_at ASC';
+
+  const rows = await query(sql, params);
   return Array.isArray(rows) ? rows : [];
 }
 
@@ -184,13 +194,22 @@ async function fetchRecords(from, to) {
 //  Fetch products created in a month
 // ─────────────────────────────────────────────
 async function fetchMonthlyProducts(from, to) {
-  const sql = `
+  const config = await getConfig();
+  const inactive = config.inactive_customers || [];
+
+  let sql = `
     SELECT *
     FROM products
     WHERE created_at >= ? AND created_at < ?
-    ORDER BY created_at ASC
   `;
-  const rows = await query(sql, [from, to]);
+  const params = [from, to];
+  if (inactive.length > 0) {
+    sql += ` AND customer NOT IN (${inactive.map(() => '?').join(',')})`;
+    params.push(...inactive);
+  }
+  sql += ' ORDER BY created_at ASC';
+
+  const rows = await query(sql, params);
   return Array.isArray(rows) ? rows : [];
 }
 

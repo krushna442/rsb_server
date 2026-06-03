@@ -1,4 +1,5 @@
 import { query, queryOne, execute } from '../db/db.js';
+import { getConfig } from './dynamicFieldModel.js';
 import { parseScanText } from './parseScanText.js';
 import { fillPalletsFromScan } from '../controllers/despatchPlanController.js';
 
@@ -33,6 +34,9 @@ const parseJsonCols = (row) => {
  */
 export const findAllScans = async (filters = {}) => {
   try {
+    const config = await getConfig();
+    const inactive = config.inactive_customers || [];
+
     const {
       dispatch_date,
       shift,
@@ -51,6 +55,11 @@ export const findAllScans = async (filters = {}) => {
 
     let sql = "SELECT * FROM scanned_products WHERE 1=1";
     const values = [];
+
+    if (inactive.length > 0) {
+      sql += ` AND customer_name NOT IN (${inactive.map(() => '?').join(',')})`;
+      values.push(...inactive);
+    }
 
     // exact date
     if (dispatch_date) {
@@ -146,8 +155,16 @@ export const countScans = async (filters = {}) => {
       this_month,
     } = filters;
 
+    const config = await getConfig();
+    const inactive = config.inactive_customers || [];
+
     let sql = "SELECT COUNT(*) AS cnt FROM scanned_products WHERE 1=1";
     const values = [];
+
+    if (inactive.length > 0) {
+      sql += ` AND customer_name NOT IN (${inactive.map(() => '?').join(',')})`;
+      values.push(...inactive);
+    }
 
     // exact date
     if (dispatch_date) {

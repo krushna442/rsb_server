@@ -1,5 +1,6 @@
 import { query, queryOne, execute, getConnection } from '../db/db.js';
 import fs from "fs";
+import { getConfig } from './dynamicFieldModel.js';
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 const parseJSON = (data, fallback = '{}') => {
@@ -29,8 +30,16 @@ const parseJsonCols = (row) => {
  */
 export const findAllProducts = async (filters = {}) => {
   try {
+    const config = await getConfig();
+    const inactive = config.inactive_customers || [];
+
     let sql = 'SELECT * FROM products WHERE 1=1';
     const values = [];
+
+    if (inactive.length > 0) {
+      sql += ` AND customer NOT IN (${inactive.map(() => '?').join(',')})`;
+      values.push(...inactive);
+    }
 
     if (filters.status) {
       sql += ' AND status = ?';
@@ -241,11 +250,17 @@ export const updateProduct = async (
         // We use a reduce approach: add each remark one field at a time.
         // Simpler: collect all into one combined remark string.
         const combinedRemark = changeRemarks.join('; ');
+        const remarkObj = JSON.stringify({
+          remark: combinedRemark,
+          date: new Date().toISOString(),
+          source: "system",
+          is_rejection: false
+        });
 
         fields.push(
-          `remarks = JSON_ARRAY_APPEND(COALESCE(remarks, JSON_ARRAY()), '$', ?)`
+          `remarks = JSON_ARRAY_APPEND(COALESCE(remarks, JSON_ARRAY()), '$', CAST(? AS JSON))`
         );
-        values.push(combinedRemark);
+        values.push(remarkObj);
       }
 
       // ── Track edited fields (only non-privileged users) ──────────────────
@@ -305,7 +320,15 @@ export const setApprovalStatus = async (id, status, modified_by = null, remarks 
       throw new Error(`Invalid approval status: ${status}`);
     }
 
-    if (status === "rejected") {
+    const isRejection = status === "rejected";
+    const remarkObj = JSON.stringify({
+      remark: remarks || (isRejection ? "Rejected" : "Approved"),
+      date: new Date().toISOString(),
+      source: "production",
+      is_rejection: isRejection
+    });
+
+    if (isRejection) {
       await execute(
         `UPDATE products
          SET approved = ?,
@@ -313,12 +336,12 @@ export const setApprovalStatus = async (id, status, modified_by = null, remarks 
              remarks = JSON_ARRAY_APPEND(
                COALESCE(remarks, JSON_ARRAY()),
                '$',
-               ?
+               CAST(? AS JSON)
              ),
              modified_by = ?,
              updated_at = NOW()
          WHERE id = ?`,
-        [status, status, remarks || "Rejected", modified_by, id]
+        [status, status, remarkObj, modified_by, id]
       );
     } else {
       await execute(
@@ -327,12 +350,12 @@ export const setApprovalStatus = async (id, status, modified_by = null, remarks 
              remarks = JSON_ARRAY_APPEND(
                COALESCE(remarks, JSON_ARRAY()),
                '$',
-               ?
+               CAST(? AS JSON)
              ),
              modified_by = ?,
              updated_at = NOW()
          WHERE id = ?`,
-        [status, remarks || "Approval status updated", modified_by, id]
+        [status, remarkObj, modified_by, id]
       );
     }
     // ✅ clear edited fields if approved
@@ -368,7 +391,15 @@ export const setQualityStatus = async (id, status, modified_by = null, remarks =
       throw new Error(`Invalid quality_verified status: ${status}`);
     }
 
-    if (status === "rejected") {
+    const isRejection = status === "rejected";
+    const remarkObj = JSON.stringify({
+      remark: remarks || (isRejection ? "Rejected by quality" : "Approved by quality"),
+      date: new Date().toISOString(),
+      source: "quality",
+      is_rejection: isRejection
+    });
+
+    if (isRejection) {
       await execute(
         `UPDATE products
          SET quality_verified = ?,
@@ -376,12 +407,12 @@ export const setQualityStatus = async (id, status, modified_by = null, remarks =
              remarks = JSON_ARRAY_APPEND(
                COALESCE(remarks, JSON_ARRAY()),
                '$',
-               ?
+               CAST(? AS JSON)
              ),
              modified_by = ?,
              updated_at = NOW()
          WHERE id = ?`,
-        [status, status, remarks || "Rejected by quality", modified_by, id]
+        [status, status, remarkObj, modified_by, id]
       );
     } else {
       await execute(
@@ -390,12 +421,12 @@ export const setQualityStatus = async (id, status, modified_by = null, remarks =
              remarks = JSON_ARRAY_APPEND(
                COALESCE(remarks, JSON_ARRAY()),
                '$',
-               ?
+               CAST(? AS JSON)
              ),
              modified_by = ?,
              updated_at = NOW()
          WHERE id = ?`,
-        [status, remarks || "Quality status updated", modified_by, id]
+        [status, remarkObj, modified_by, id]
       );
     }
 
@@ -426,18 +457,25 @@ export const setQualityStatus = async (id, status, modified_by = null, remarks =
 
 export const setInactiveProduct = async (id, modified_by = null, remarks = null) => {
   try {
+    const remarkObj = JSON.stringify({
+      remark: remarks || "Marked inactive",
+      date: new Date().toISOString(),
+      source: "admin",
+      is_rejection: false
+    });
+
     await execute(
       `UPDATE products
        SET status = ?,
            remarks = JSON_ARRAY_APPEND(
              COALESCE(remarks, JSON_ARRAY()),
              '$',
-             ?
+             CAST(? AS JSON)
            ),
            modified_by = ?,
            updated_at = NOW()
        WHERE id = ?`,
-      ["inactive", remarks || "Marked inactive", modified_by, id]
+      ["inactive", remarkObj, modified_by, id]
     );
 
     return await findProductById(id);
@@ -508,7 +546,10 @@ export const deleteProduct = async (id) => {
 
 export const getProductCounts = async () => {
   try {
-    const rows = await query(`
+    const config = await getConfig();
+    const inactive = config.inactive_customers || [];
+
+    let sql = `
       SELECT
         COUNT(*)                                                     AS total,
         SUM(approved = 'approved')                                   AS approved,
@@ -523,7 +564,14 @@ export const getProductCounts = async () => {
         SUM(status = 'inactive')                                     AS inactive,
         SUM(edited = 1)                                              AS edited
       FROM products
-    `);
+    `;
+    const values = [];
+    if (inactive.length > 0) {
+      sql += ` WHERE customer NOT IN (${inactive.map(() => '?').join(',')})`;
+      values.push(...inactive);
+    }
+
+    const rows = await query(sql, values);
     return rows[0];
   } catch (error) {
     console.error('Error in getProductCounts:', error);
@@ -707,8 +755,10 @@ export const markDocumentNotRequiredModel = async (
 
 export const getDropdownOptions = async () => {
   try {
+    const config = await getConfig();
+    const inactive = config.inactive_customers || [];
 
-    const rows = await query(`
+    let sql = `
       SELECT
         GROUP_CONCAT(DISTINCT TRIM(customer)) AS customers,
 
@@ -738,8 +788,14 @@ export const getDropdownOptions = async () => {
 
       FROM products
       WHERE specification IS NOT NULL
-    `);
+    `;
+    const values = [];
+    if (inactive.length > 0) {
+      sql += ` AND customer NOT IN (${inactive.map(() => '?').join(',')})`;
+      values.push(...inactive);
+    }
 
+    const rows = await query(sql, values);
     const r = rows[0] || {};
 
     const split = (str) => {

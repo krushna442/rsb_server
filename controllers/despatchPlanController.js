@@ -1,5 +1,6 @@
 // controllers/despatchPlanController.js
 import { query } from '../db/db.js';
+import { getConfig } from '../models/dynamicFieldModel.js';
 import { findDespatchMailEmails } from '../models/userModel.js';
 import { emitToAll } from '../utils/socket.js';
 import nodemailer from 'nodemailer';
@@ -65,15 +66,21 @@ async function getDespatchEmails() {
 async function fetchFullPlan(plan_date) {
   const [plan] = await query(`SELECT * FROM despatch_plans WHERE plan_date = ?`, [plan_date]);
   if (!plan) return null;
-  // Order by is_completed ASC (incomplete first, completed last), then priority_number ASC NULLS LAST, then vehicle_label ASC
-  const vehicles = await query(
-    `SELECT * FROM despatch_vehicles WHERE plan_id = ?
-     ORDER BY is_completed ASC,
+  
+  const config = await getConfig();
+  const inactive = config.inactive_customers || [];
+  
+  let sql = `SELECT * FROM despatch_vehicles WHERE plan_id = ?`;
+  let params = [plan.id];
+  if (inactive.length > 0) {
+    sql += ` AND (customer IS NULL OR customer NOT IN (${inactive.map(() => '?').join(',')}))`;
+    params.push(...inactive);
+  }
+  sql += ` ORDER BY is_completed ASC,
               CASE WHEN priority_number IS NULL THEN 1 ELSE 0 END,
               priority_number ASC,
-              vehicle_label ASC`,
-    [plan.id]
-  );
+              vehicle_label ASC`;
+  const vehicles = await query(sql, params);
   for (const v of vehicles) {
     v.pallets = await query(
       `SELECT * FROM despatch_pallets WHERE vehicle_id = ? ORDER BY pallet_label`, [v.id]
@@ -87,17 +94,26 @@ async function fetchFullPlan(plan_date) {
 async function fetchPendingVehicles(beforeDate) {
   const cutoffDate = getPlanDate(new Date(Date.now() - 48 * 60 * 60 * 1000));
 
-  const vehicles = await query(
-    `SELECT dv.*, dp.plan_date 
+  const config = await getConfig();
+  const inactive = config.inactive_customers || [];
+
+  let sql = `SELECT dv.*, dp.plan_date 
      FROM despatch_vehicles dv
      JOIN despatch_plans dp ON dp.id = dv.plan_id
-     WHERE dp.plan_date < ? AND dp.plan_date >= ? AND dv.is_completed = 0
-     ORDER BY dp.plan_date ASC, 
+     WHERE dp.plan_date < ? AND dp.plan_date >= ? AND dv.is_completed = 0`;
+  let params = [beforeDate, cutoffDate];
+
+  if (inactive.length > 0) {
+    sql += ` AND (dv.customer IS NULL OR dv.customer NOT IN (${inactive.map(() => '?').join(',')}))`;
+    params.push(...inactive);
+  }
+
+  sql += ` ORDER BY dp.plan_date ASC, 
               CASE WHEN dv.priority_number IS NULL THEN 1 ELSE 0 END, 
               dv.priority_number ASC, 
-              dv.vehicle_label ASC`,
-    [beforeDate, cutoffDate]
-  );
+              dv.vehicle_label ASC`;
+
+  const vehicles = await query(sql, params);
   
   for (const v of vehicles) {
     v.pallets = await query(
@@ -407,32 +423,44 @@ export async function getDespatchGraphData(req, res) {
     const { from, to } = req.query;
     if (!from || !to) return res.status(400).json({ success: false, message: 'from and to query params are required' });
 
+    const config = await getConfig();
+    const inactive = config.inactive_customers || [];
+
     // Vehicles per day
-    const vehiclesPerDay = await query(
-      `SELECT dp.plan_date, COUNT(dv.id) AS total_vehicles,
+    let sqlVehicles = `SELECT dp.plan_date, COUNT(dv.id) AS total_vehicles,
               SUM(dv.is_completed) AS completed_vehicles
        FROM despatch_plans dp
-       LEFT JOIN despatch_vehicles dv ON dv.plan_id = dp.id
-       WHERE dp.plan_date BETWEEN ? AND ?
+       LEFT JOIN despatch_vehicles dv ON dv.plan_id = dp.id`;
+    let paramsVehicles = [];
+    if (inactive.length > 0) {
+      sqlVehicles += ` AND (dv.customer IS NULL OR dv.customer NOT IN (${inactive.map(() => '?').join(',')}))`;
+      paramsVehicles.push(...inactive);
+    }
+    sqlVehicles += ` WHERE dp.plan_date BETWEEN ? AND ?
        GROUP BY dp.plan_date
-       ORDER BY dp.plan_date ASC`,
-      [from, to]
-    );
+       ORDER BY dp.plan_date ASC`;
+    paramsVehicles.push(from, to);
+
+    const vehiclesPerDay = await query(sqlVehicles, paramsVehicles);
 
     // Part number wise total despatched pieces (from fulfilled pallets)
-    const partNumberWise = await query(
-      `SELECT dp2.part_number,
+    let sqlParts = `SELECT dp2.part_number,
               SUM(dp2.filled_quantity) AS total_despatched,
               SUM(dp2.target_qty) AS total_target
        FROM despatch_plans dpln
        JOIN despatch_vehicles dv ON dv.plan_id = dpln.id
        JOIN despatch_pallets dp2 ON dp2.vehicle_id = dv.id
        WHERE dpln.plan_date BETWEEN ? AND ?
-         AND dp2.part_number IS NOT NULL AND dp2.part_number != ''
-       GROUP BY dp2.part_number
-       ORDER BY total_despatched DESC`,
-      [from, to]
-    );
+         AND dp2.part_number IS NOT NULL AND dp2.part_number != ''`;
+    let paramsParts = [from, to];
+    if (inactive.length > 0) {
+      sqlParts += ` AND (dv.customer IS NULL OR dv.customer NOT IN (${inactive.map(() => '?').join(',')}))`;
+      paramsParts.push(...inactive);
+    }
+    sqlParts += ` GROUP BY dp2.part_number
+       ORDER BY total_despatched DESC`;
+
+    const partNumberWise = await query(sqlParts, paramsParts);
 
     res.json({ success: true, vehiclesPerDay, partNumberWise });
   } catch (err) {

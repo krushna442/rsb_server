@@ -141,10 +141,7 @@ const formatDateTime = (dateInput, onlyDate = false) => {
 export const approveProduct = async (req, res) => {
   try {
     const { status, remarks, remark } = req.body;
-    let finalRemarks = remarks || remark || null;
-    if (finalRemarks) {
-      finalRemarks = `${finalRemarks} (production)`;
-    }
+    const finalRemarks = remarks || remark || null;
 
     const data = await setApprovalStatus(
       req.params.id,
@@ -226,10 +223,7 @@ export const approveProduct = async (req, res) => {
 export const qualityVerifyProduct = async (req, res) => {
   try {
     const { status, remarks, remark } = req.body;
-    let finalRemarks = remarks || remark || null;
-    if (finalRemarks) {
-      finalRemarks = `${finalRemarks} (quality)`;
-    }
+    const finalRemarks = remarks || remark || null;
 
     const data = await setQualityStatus(
       req.params.id,

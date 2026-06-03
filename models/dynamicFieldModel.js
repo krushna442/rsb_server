@@ -35,6 +35,7 @@ export const getConfig = async () => {
       standard_names:              parseJSON(row.standard_names, '[]'),
       control_plan_names:           parseJSON(row.control_plan_names, '[]'),
       bearing_JT_types:             parseJSON(row.bearing_JT_types, '[]'),
+      inactive_customers:           parseJSON(row.inactive_customers, '[]'),
       updated_at:                   row.updated_at,
     };
   } catch (error) {
@@ -102,9 +103,10 @@ export const updateConfig = async (patch) => {
       patch.customer_names === undefined &&
       patch.standard_names === undefined &&
       patch.control_plan_names === undefined &&
-      patch.bearing_JT_types === undefined
+      patch.bearing_JT_types === undefined &&
+      patch.inactive_customers === undefined
     ) {
-      throw new Error('Nothing to update. Send at least one of: product_fields, approval_fields, quality_verification_fields, customer_names, standard_names, control_plan_names, bearing_JT_types');
+      throw new Error('Nothing to update. Send at least one of: product_fields, approval_fields, quality_verification_fields, customer_names, standard_names, control_plan_names, bearing_JT_types, inactive_customers');
     }
 
     await execute(
@@ -115,7 +117,8 @@ export const updateConfig = async (patch) => {
            customer_names = ?,
            standard_names = ?,
            control_plan_names = ?,
-           bearing_JT_types = ?
+           bearing_JT_types = ?,
+           inactive_customers = ?
        WHERE id = 1`,
       [
         JSON.stringify(newProductFields),
@@ -125,6 +128,7 @@ export const updateConfig = async (patch) => {
         JSON.stringify(patch.standard_names !== undefined ? patch.standard_names : current.standard_names),
         JSON.stringify(patch.control_plan_names !== undefined ? patch.control_plan_names : current.control_plan_names),
         JSON.stringify(patch.bearing_JT_types !== undefined ? patch.bearing_JT_types : current.bearing_JT_types),
+        JSON.stringify(patch.inactive_customers !== undefined ? patch.inactive_customers : current.inactive_customers),
       ]
     );
 
@@ -301,10 +305,11 @@ export const deleteCustomerNames = async (names) => {
 
     const current = await getConfig();
     const updated = current.customer_names.filter(n => !names.includes(n));
+    const updatedInactive = (current.inactive_customers || []).filter(n => !names.includes(n));
 
     await execute(
-      'UPDATE dynamic_fields SET customer_names = ? WHERE id = 1',
-      [JSON.stringify(updated)]
+      'UPDATE dynamic_fields SET customer_names = ?, inactive_customers = ? WHERE id = 1',
+      [JSON.stringify(updated), JSON.stringify(updatedInactive)]
     );
 
     return getConfig();

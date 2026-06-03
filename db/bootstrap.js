@@ -116,6 +116,7 @@ async function createDynamicFieldsTable() {
         standard_names              JSON NOT NULL DEFAULT ('[]'),
         control_plan_names          JSON NOT NULL DEFAULT ('[]'),
         bearing_JT_types            JSON NOT NULL DEFAULT ('[]'),
+        inactive_customers          JSON NOT NULL DEFAULT ('[]'),
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
@@ -125,8 +126,8 @@ async function createDynamicFieldsTable() {
     if (!existing.length) {
       await query(
         `INSERT INTO dynamic_fields
-          (product_fields, approval_fields, quality_verification_fields, important_fields, documents,customer_names,standard_names,control_plan_names, bearing_JT_types)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (product_fields, approval_fields, quality_verification_fields, important_fields, documents,customer_names,standard_names,control_plan_names, bearing_JT_types, inactive_customers)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           // ── product_fields (unchanged) ──────────────────────────────────────
           JSON.stringify([
@@ -251,6 +252,9 @@ async function createDynamicFieldsTable() {
             "REAR LINE",
             "COMMON LINE",
             "SOP / Quality Alert"
+          ]),
+          JSON.stringify([
+
           ]),
           JSON.stringify([
 
@@ -774,6 +778,8 @@ export async function runBootstrap() {
     // try { await query(`ALTER TABLE drawings ADD COLUMN serial_number VARCHAR(100) AFTER customer`); } catch (_) {}
     // try { await query(`ALTER TABLE despatch_vehicles ADD COLUMN priority_number INT DEFAULT NULL`); } catch (_) {}
     // try { await query(`ALTER TABLE despatch_pallets ADD COLUMN filled_quantity INT DEFAULT 0 AFTER target_qty`); } catch (_) {}
+
+    try { await query("ALTER TABLE dynamic_fields ADD COLUMN inactive_customers JSON NOT NULL DEFAULT ('[]')"); } catch (_) {}
 
     console.log('🎉 Bootstrap completed successfully');
     return true;

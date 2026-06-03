@@ -3,6 +3,7 @@ import { query, queryOne, execute } from '../db/db.js';
 import fs from 'fs';
 import path from 'path';
 import { parseRemarks, serializeRemarks } from '../utils/remarksHelper.js';
+import { getConfig } from '../models/dynamicFieldModel.js';
 
 const parseUser = (req) => req.user?.username || req.user?.name || 'system';
 
@@ -48,10 +49,18 @@ export const listDrawings = async (req, res) => {
   try {
     const role = req.user?.role || 'viewer';
     const isAdmin = ['admin', 'super admin'].includes(role);
+    const config = await getConfig();
+    const inactive = config.inactive_customers || [];
 
-    const rows = await query(
-      `SELECT * FROM drawings WHERE is_latest = 1 ORDER BY customer ASC, LENGTH(serial_number) ASC, serial_number ASC`
-    );
+    let sql = 'SELECT * FROM drawings WHERE is_latest = 1';
+    let params = [];
+    if (inactive.length > 0) {
+      sql += ` AND customer NOT IN (${inactive.map(() => '?').join(',')})`;
+      params.push(...inactive);
+    }
+    sql += ' ORDER BY customer ASC, LENGTH(serial_number) ASC, serial_number ASC';
+
+    const rows = await query(sql, params);
     const parsedRows = rows.map(r => ({ ...r, remarks: parseRemarks(r.remarks) }));
 
     let versionMap = {};
