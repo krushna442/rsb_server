@@ -1749,12 +1749,56 @@ async function sendHourlyProductionReport() {
       </table>
     `;
 
+    // ── Cumulative Tube Length Table ──────────────────────────────────────────
+    const tubeLengthMap = {};
+    rows.forEach(r => {
+      const tl = (r.tube_length || '').trim() || '(blank)';
+      tubeLengthMap[tl] = (tubeLengthMap[tl] || 0) + (Number(r.quantity) || 0);
+    });
+
+    const tubeLengthEntries = Object.entries(tubeLengthMap).sort(([a], [b]) => a.localeCompare(b));
+    const grandTotal = tubeLengthEntries.reduce((s, [, qty]) => s + qty, 0);
+
+    let cumulativeHTML = `
+      <h3 style="font-family: sans-serif; margin-top: 28px;">Cumulative Production by Tube Length</h3>
+      <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; font-family: sans-serif; max-width: 500px;">
+        <thead style="background-color: #f1f5f9;">
+          <tr>
+            <th>Tube Length</th>
+            <th>Total Quantity</th>
+          </tr>
+        </thead>
+        <tbody>
+    `;
+
+    tubeLengthEntries.forEach(([tl, qty]) => {
+      cumulativeHTML += `
+        <tr>
+          <td style="text-align: center;">${tl}</td>
+          <td style="text-align: center; font-weight: bold;">${qty}</td>
+        </tr>
+      `;
+    });
+
+    cumulativeHTML += `
+        </tbody>
+        <tfoot style="background-color: #f8fafc; font-weight: bold;">
+          <tr>
+            <td style="text-align: right;">Grand Total:</td>
+            <td style="text-align: center;">${grandTotal}</td>
+          </tr>
+        </tfoot>
+      </table>
+    `;
+    // ── End Cumulative Table ─────────────────────────────────────────────────
+
     const html = `
       <div style="font-family: sans-serif; color: #333;">
         <h2>Hourly Production Report</h2>
         <p><strong>Production Date:</strong> ${prodDateObj.toLocaleDateString('en-IN')}</p>
         <p>Please find the production records for the day below:</p>
         ${tableHTML}
+        ${cumulativeHTML}
         <br/>
         <p>Best regards,<br/>RSB Dashboard System</p>
       </div>

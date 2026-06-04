@@ -152,6 +152,22 @@ export const addDrawing = async (req, res) => {
     const modification_date = new Date().toISOString().slice(0, 10);
     const createdBy = parseUser(req);
 
+
+    // RSB uniqueness check: for RSB customer, part_number must be unique
+    // (part_number IS the drawing_number for RSB, so we check if any drawing exists with that drawing_number)
+    if (customer?.toUpperCase() === 'RSB') {
+      const existingRSB = await queryOne(
+        'SELECT id FROM drawings WHERE drawing_number = ?',
+        [finalDrawingNumber]
+      );
+      if (existingRSB) {
+        return res.status(409).json({
+          success: false,
+          message: `Part number "${finalDrawingNumber}" already exists under RSB customer. Each part number must be unique for RSB.`
+        });
+      }
+    }
+
     // Check if a drawing with same drawing_number already exists (versioning)
     const existing = await queryOne(
       'SELECT id, version FROM drawings WHERE drawing_number = ? AND is_latest = 1',
