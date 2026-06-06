@@ -68,6 +68,12 @@ const SHIFTS = [
   { label: 'Shift B  (14:00 – 22:00)', shiftLetter: 'B', startHour: 14, endHour: 22 },
   { label: 'Shift C  (22:00 – 06:00)', shiftLetter: 'C', startHour: 22, endHour: 6  },
 ];
+// ─────────────────────────────────────────────
+function parseLocal(d) {
+  if (!d) return null;
+  const str = typeof d === 'string' ? d : (d instanceof Date ? d.toISOString() : String(d));
+  return new Date(str.replace(/Z$/, ''));
+}
 
 function getShiftFromDate(date) {
   if (!date) return '';
@@ -348,8 +354,8 @@ async function buildScanExcel(rows, titleLabel, reportDate, filename) {
   rows.forEach((r, idx) => {
     const excelRow = sheet.addRow({
       sr_no:          r.sl_no ?? idx + 1,
-      shift:          getShiftFromDate(new Date(r.created_at)),
-      created_on:     r.created_at ? new Date(r.created_at).toLocaleString('en-IN') : '',
+      shift:          getShiftFromDate(parseLocal(r.created_at)),
+      created_on:     r.created_at ? parseLocal(r.created_at).toLocaleString('en-IN') : '',
       customer_name:  r.customer_name ?? '',
       vendor_code:    r.vendorCode ?? '',
       plant_code:     r.plant_location?.split('-')[0]?.trim() ?? '',
@@ -1086,7 +1092,7 @@ async function buildMonthlyProductsExcel(products, monthLabel, filename) {
       tube_dia:     spec.tubeDiameter ?? '',
       status:       p.status ?? '',
       created_by:   p.created_by ?? '',
-      created_at:   p.created_at ? new Date(p.created_at).toLocaleString('en-IN') : '',
+      created_at:   p.created_at ? parseLocal(p.created_at).toLocaleString('en-IN') : '',
     });
     excelRow.height = 18;
     const fill = idx % 2 === 0 ? whiteFill() : lightFill();
@@ -1497,7 +1503,7 @@ async function sendDayReport() {
       }
 
       const shRows = allRows.filter(r => {
-        const t = new Date(r.created_at).getTime();
+        const t = parseLocal(r.created_at).getTime();
         return t >= shFrom.getTime() && t < shTo.getTime();
       });
       const s = calcStats(shRows);
@@ -1531,10 +1537,10 @@ async function sendDayReport() {
       custGroups[cust].total++;
 
       // Determine which shift this record belongs to by checking created_at
-      const t = new Date(row.created_at).getTime();
+      const t = parseLocal(row.created_at).getTime();
       // Re-use the already-computed shift time windows stored in shiftsSummary
       // Instead, compute shift membership directly:
-      const recHour = new Date(row.created_at).getHours();
+      const recHour = parseLocal(row.created_at).getHours();
       if (recHour >= 6  && recHour < 14) custGroups[cust].shiftA++;
       else if (recHour >= 14 && recHour < 22) custGroups[cust].shiftB++;
       else custGroups[cust].shiftC++;            // 22:00–06:00
@@ -1797,8 +1803,8 @@ async function sendHourlyProductionReport() {
         <h2>Hourly Production Report</h2>
         <p><strong>Production Date:</strong> ${prodDateObj.toLocaleDateString('en-IN')}</p>
         <p>Please find the production records for the day below:</p>
-        ${tableHTML}
         ${cumulativeHTML}
+        ${tableHTML}
         <br/>
         <p>Best regards,<br/>RSB Dashboard System</p>
       </div>

@@ -32,9 +32,15 @@ const SHIFTS = [
 
 // ─────────────────────────────────────────────
 //  Helper: determine shift letter from a Date
+function parseLocal(d) {
+  if (!d) return null;
+  const str = typeof d === 'string' ? d : (d instanceof Date ? d.toISOString() : String(d));
+  return new Date(str.replace(/Z$/, ''));
+}
+
 // ─────────────────────────────────────────────
 function getShiftLetter(date) {
-  const h = new Date(date).getHours();
+  const h = parseLocal(date).getHours();
   if (h >= 6  && h < 14) return 'A';
   if (h >= 14 && h < 22) return 'B';
   return 'C';   // 22:00–06:00

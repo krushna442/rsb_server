@@ -29,14 +29,14 @@ export const getByDate = async (req, res) => {
 // ── POST /api/hourly-production  (add one row) ────────────────────────────────
 export const addRecord = async (req, res) => {
   try {
-    const { production_date, hour_slot, part_type, tube_length, quantity, remarks } = req.body;
+    const { production_date, hour_slot, part_type, tube_length, part_number, quantity, remarks } = req.body;
     if (!production_date || !validSlot(hour_slot) || !PART_TYPES.includes(part_type)) {
       return res.status(400).json({ success: false, message: 'production_date, hour_slot(6-29), part_type(front/rear/ia) required' });
     }
     const createdBy = parseUser(req);
     const result = await execute(
-      `INSERT INTO hourly_production (production_date, hour_slot, part_type, tube_length, quantity, remarks, created_by, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [production_date, parseInt(hour_slot), part_type, tube_length || null, parseInt(quantity) || 0, remarks || null, createdBy, createdBy]
+      `INSERT INTO hourly_production (production_date, hour_slot, part_type, tube_length, part_number, quantity, remarks, created_by, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [production_date, parseInt(hour_slot), part_type, tube_length || null, part_number || null, parseInt(quantity) || 0, remarks || null, createdBy, createdBy]
     );
     const newRow = await queryOne('SELECT * FROM hourly_production WHERE id = ?', [result.insertId]);
     res.status(201).json({ success: true, data: newRow });
@@ -50,11 +50,11 @@ export const addRecord = async (req, res) => {
 export const updateRecord = async (req, res) => {
   try {
     const { id } = req.params;
-    const { tube_length, quantity, remarks } = req.body;
+    const { tube_length, part_number, quantity, remarks } = req.body;
     const updatedBy = parseUser(req);
     await execute(
-      `UPDATE hourly_production SET tube_length=?, quantity=?, remarks=?, updated_by=? WHERE id=?`,
-      [tube_length || null, parseInt(quantity) || 0, remarks || null, updatedBy, id]
+      `UPDATE hourly_production SET tube_length=?, part_number=?, quantity=?, remarks=?, updated_by=? WHERE id=?`,
+      [tube_length || null, part_number || null, parseInt(quantity) || 0, remarks || null, updatedBy, id]
     );
     const row = await queryOne('SELECT * FROM hourly_production WHERE id = ?', [id]);
     res.json({ success: true, data: row });

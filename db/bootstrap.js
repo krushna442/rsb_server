@@ -781,6 +781,12 @@ export async function runBootstrap() {
 
     try { await query("ALTER TABLE dynamic_fields ADD COLUMN inactive_customers JSON NOT NULL DEFAULT ('[]')"); } catch (_) {}
 
+    // Employee count on bearing cup plans (per-row)
+    try { await query(`ALTER TABLE bearing_cup_plans ADD COLUMN employee_count INT DEFAULT 1`); } catch (_) {}
+
+    // Part number on hourly production rows
+    try { await query(`ALTER TABLE hourly_production ADD COLUMN part_number VARCHAR(100) DEFAULT NULL`); } catch (_) {}
+
     console.log('🎉 Bootstrap completed successfully');
     return true;
   } catch (error) {

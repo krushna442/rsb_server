@@ -137,3 +137,18 @@ export async function deletePerson(req, res) {
     res.status(500).json({ success: false, message: err.message });
   }
 }
+
+export async function removePersonPhoto(req, res) {
+  const { id } = req.params;
+  try {
+    const [existing] = await query(`SELECT photo_path FROM skill_matrix_persons WHERE id = ?`, [id]);
+    if (existing?.photo_path) {
+      const fp = path.join(process.cwd(), existing.photo_path);
+      if (fs.existsSync(fp)) fs.unlinkSync(fp);
+    }
+    await query(`UPDATE skill_matrix_persons SET photo_path = NULL WHERE id = ?`, [id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+}

@@ -4,7 +4,7 @@ import { protectRoute } from '../middlewares/authMiddleware.js';
 import { uploadSkillPhoto } from '../middlewares/uploadFiles.js';
 import {
   listMachines, addMachine, editMachine, deleteMachine,
-  addPerson, editPerson, deletePerson
+  addPerson, editPerson, deletePerson, removePersonPhoto
 } from '../controllers/skillMatrixController.js';
 
 const router = express.Router();
@@ -26,5 +26,6 @@ router.delete('/:id',                  protectRoute, adminOnly, deleteMachine);
 router.post('/persons',                protectRoute, adminOnly, uploadSkillPhoto.single('photo'), addPerson);
 router.put('/persons/:id',             protectRoute, adminOnly, uploadSkillPhoto.single('photo'), editPerson);
 router.delete('/persons/:id',          protectRoute, adminOnly, deletePerson);
+router.delete('/persons/:id/photo',    protectRoute, adminOnly, removePersonPhoto);
 
 export default router;

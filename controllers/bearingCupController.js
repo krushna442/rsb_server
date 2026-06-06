@@ -85,7 +85,7 @@ export const upsertPlan = async (req, res) => {
     }
     const updatedBy = parseUser(req);
     for (const row of planRows) {
-      const { jt_type, type, target = 0, total_qty = 0, previous_diff = 0 } = row;
+      const { jt_type, type, target = 0, total_qty = 0, previous_diff = 0, employee_count = 1 } = row;
       if (!jt_type || !['G', 'NG'].includes(type)) continue;
 
       // Extract all shiftX_qty keys
@@ -99,8 +99,8 @@ export const upsertPlan = async (req, res) => {
       );
 
       if (existing) {
-        let updateSql = `UPDATE bearing_cup_plans SET target=?, total_qty=?, previous_diff=?, updated_by=?`;
-        const params = [target, total_qty, previous_diff, updatedBy];
+        let updateSql = `UPDATE bearing_cup_plans SET target=?, total_qty=?, previous_diff=?, employee_count=?, updated_by=?`;
+        const params = [target, total_qty, previous_diff, employee_count, updatedBy];
         
         shiftKeys.forEach(k => {
           updateSql += `, ${k}=?`;
@@ -111,9 +111,9 @@ export const upsertPlan = async (req, res) => {
         params.push(existing.id);
         await execute(updateSql, params);
       } else {
-        let cols = 'plan_date, jt_type, type, target, total_qty, previous_diff, created_by, updated_by';
-        let placeholders = '?, ?, ?, ?, ?, ?, ?, ?';
-        const params = [date, jt_type, type, target, total_qty, previous_diff, updatedBy, updatedBy];
+        let cols = 'plan_date, jt_type, type, target, total_qty, previous_diff, employee_count, created_by, updated_by';
+        let placeholders = '?, ?, ?, ?, ?, ?, ?, ?, ?';
+        const params = [date, jt_type, type, target, total_qty, previous_diff, employee_count, updatedBy, updatedBy];
         
         shiftKeys.forEach(k => {
           cols += `, ${k}`;
