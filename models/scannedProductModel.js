@@ -443,7 +443,7 @@ if (field.masterKey === 'customer') {
     ? 'Details matched successfully'
     : `Mismatch found in: ${mismatched.join(', ')}`;
 
-  return { matched, mismatched, status, remarks };
+  return { matched, mismatched, status, remarks, format: parsed?.format };
 };
 
 /**
@@ -533,7 +533,7 @@ export const createScan = async (scanData, masterProduct, created_by = null) => 
     const masterSpec  = masterProduct?.specification ?? {};
     const scannedSpec = scanData.scanned_specification ?? {};
 
-    const { matched, mismatched, status, remarks } = runValidation(
+    const { matched, mismatched, status, remarks, format } = runValidation(
       masterSpec,
       masterProduct,
       scanData
@@ -598,14 +598,14 @@ export const createScan = async (scanData, masterProduct, created_by = null) => 
   status
 });
     // ── Auto-fill despatch pallets on successful pass scan ──────────────────
-    if (status === 'pass') {
-      fillPalletsFromScan(
+    if (status === 'pass' && format !== 'F1' && format !== 'F5') {
+      await fillPalletsFromScan(
         finalPartNo,
         scanData.customer_name,
         1, // each scan = 1 unit
         scanData.product_type,
         dispatchDate
-      ).catch(err => console.error('fillPalletsFromScan error in createScan:', err));
+      );
     }
 
     return findScanById(result.insertId);

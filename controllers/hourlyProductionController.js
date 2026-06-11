@@ -142,21 +142,22 @@ export const getTubeLengthSummary = async (req, res) => {
     const { from, to } = req.query;
     if (!from || !to) return res.status(400).json({ success: false, message: 'from and to dates are required' });
 
-    // Row-level detail: date + tube_length + part_type + total qty
+    // Row-level detail: date + tube_length + part_number + part_type + total qty
     const rows = await query(
       `SELECT
          production_date,
          COALESCE(NULLIF(TRIM(tube_length), ''), '(blank)') AS tube_length,
+         COALESCE(NULLIF(TRIM(part_number), ''), '(blank)') AS part_number,
          SUM(quantity) AS qty
        FROM hourly_production
        WHERE production_date BETWEEN ? AND ?
          AND tube_length IS NOT NULL AND TRIM(tube_length) != ''
-       GROUP BY production_date, tube_length
-       ORDER BY production_date ASC, tube_length ASC`,
+       GROUP BY production_date, tube_length, part_number
+       ORDER BY production_date ASC, tube_length ASC, part_number ASC`,
       [from, to]
     );
 
-    // Shape: { byDate: { 'YYYY-MM-DD': [{ tube_length, qty }] }, totals: [{ tube_length, qty }] }
+    // Shape: { byDate: { 'YYYY-MM-DD': [{ tube_length, part_number, qty }] }, totals: [{ tube_length, part_number, qty }] }
     const byDate = {};
     const totalsMap = {};
 
@@ -165,17 +166,26 @@ export const getTubeLengthSummary = async (req, res) => {
         ? r.production_date.toISOString().slice(0, 10)
         : String(r.production_date).slice(0, 10);
       const tl = r.tube_length;
+      const pn = r.part_number;
       const qty = Number(r.qty) || 0;
 
       if (!byDate[d]) byDate[d] = [];
-      byDate[d].push({ tube_length: tl, qty });
+      byDate[d].push({ tube_length: tl, part_number: pn, qty });
 
-      totalsMap[tl] = (totalsMap[tl] || 0) + qty;
+      const key = `${tl}::${pn}`;
+      totalsMap[key] = (totalsMap[key] || 0) + qty;
     });
 
     const totals = Object.entries(totalsMap)
-      .map(([tube_length, qty]) => ({ tube_length, qty }))
-      .sort((a, b) => a.tube_length.localeCompare(b.tube_length));
+      .map(([key, qty]) => {
+        const [tube_length, part_number] = key.split('::');
+        return { tube_length, part_number, qty };
+      })
+      .sort((a, b) => {
+        const cmp = a.tube_length.localeCompare(b.tube_length);
+        if (cmp !== 0) return cmp;
+        return a.part_number.localeCompare(b.part_number);
+      });
 
     res.json({ success: true, byDate, totals, from, to });
   } catch (err) {

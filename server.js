@@ -37,7 +37,7 @@ const PORT = process.env.PORT || 5000;
 
 // ── Allowed origins (same list used for both REST CORS and Socket.IO CORS) ────
 const ALLOWED_ORIGINS = [
-  "http://192.168.1.20:3000",
+  "http://192.168.1.16:3000",
   "http://10.254.145.17:3000",
   "http://172.22.39.17:3000",
   "http://10.99.45.17:3000",

@@ -75,6 +75,12 @@ function parseLocal(d) {
   return new Date(str.replace(/Z$/, ''));
 }
 
+function toLocalSQLString(d) {
+  if (!d) return null;
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
 function getShiftFromDate(date) {
   if (!date) return '';
   const hours = date.getHours();
@@ -185,7 +191,7 @@ async function fetchRecords(from, to) {
     FROM scanned_products
     WHERE created_at >= ? AND created_at < ?
   `;
-  const params = [from, to];
+  const params = [toLocalSQLString(from), toLocalSQLString(to)];
   if (inactive.length > 0) {
     sql += ` AND customer_name NOT IN (${inactive.map(() => '?').join(',')})`;
     params.push(...inactive);
@@ -208,7 +214,7 @@ async function fetchMonthlyProducts(from, to) {
     FROM products
     WHERE created_at >= ? AND created_at < ?
   `;
-  const params = [from, to];
+  const params = [toLocalSQLString(from), toLocalSQLString(to)];
   if (inactive.length > 0) {
     sql += ` AND customer NOT IN (${inactive.map(() => '?').join(',')})`;
     params.push(...inactive);
@@ -1709,6 +1715,23 @@ async function sendHourlyProductionReport() {
       return;
     }
 
+    const products = await query(`SELECT part_number, specification, part_type FROM products`);
+    
+    // Backfill missing part numbers
+    rows.forEach(r => {
+      if (!r.part_number && r.tube_length) {
+        const prod = products.find(p => {
+          if (!p.specification) return false;
+          let spec;
+          try {
+            spec = typeof p.specification === 'string' ? JSON.parse(p.specification) : p.specification;
+          } catch(e) { return false; }
+          return String(spec.tubeLength || '').trim() === String(r.tube_length || '').trim();
+        });
+        if (prod) r.part_number = prod.part_number;
+      }
+    });
+
     const formatHour = (h) => {
       const ampm = h % 24 < 12 ? 'AM' : 'PM';
       let hour = h % 12;
@@ -1723,6 +1746,7 @@ async function sendHourlyProductionReport() {
             <th>Time</th>
             <th>Part Type</th>
             <th>Tube Length</th>
+            <th>Part Number</th>
             <th>Quantity</th>
             <th>Remarks</th>
           </tr>
@@ -1738,6 +1762,7 @@ async function sendHourlyProductionReport() {
           <td>${formatHour(r.hour_slot)} - ${formatHour(r.hour_slot + 1)}</td>
           <td style="text-transform: capitalize;">${r.part_type}</td>
           <td>${r.tube_length || ''}</td>
+          <td>${r.part_number || ''}</td>
           <td>${r.quantity}</td>
           <td>${r.remarks || ''}</td>
         </tr>
@@ -1748,7 +1773,7 @@ async function sendHourlyProductionReport() {
         </tbody>
         <tfoot style="background-color: #f8fafc; font-weight: bold;">
           <tr>
-            <td colspan="3" style="text-align: right;">Total Quantity:</td>
+            <td colspan="4" style="text-align: right;">Total Quantity:</td>
             <td colspan="2">${totalQty}</td>
           </tr>
         </tfoot>
@@ -1756,32 +1781,46 @@ async function sendHourlyProductionReport() {
     `;
 
     // ── Cumulative Tube Length Table ──────────────────────────────────────────
-    const tubeLengthMap = {};
+    const summaryMap = {};
     rows.forEach(r => {
       const tl = (r.tube_length || '').trim() || '(blank)';
-      tubeLengthMap[tl] = (tubeLengthMap[tl] || 0) + (Number(r.quantity) || 0);
+      const pn = (r.part_number || '').trim() || '(blank)';
+      const key = `${tl}::${pn}`;
+      summaryMap[key] = (summaryMap[key] || 0) + (Number(r.quantity) || 0);
     });
 
-    const tubeLengthEntries = Object.entries(tubeLengthMap).sort(([a], [b]) => a.localeCompare(b));
-    const grandTotal = tubeLengthEntries.reduce((s, [, qty]) => s + qty, 0);
+    const summaryEntries = Object.entries(summaryMap)
+      .map(([key, qty]) => {
+        const [tl, pn] = key.split('::');
+        return { tl, pn, qty };
+      })
+      .sort((a, b) => {
+        const cmp = a.tl.localeCompare(b.tl);
+        if (cmp !== 0) return cmp;
+        return a.pn.localeCompare(b.pn);
+      });
+
+    const grandTotal = summaryEntries.reduce((s, row) => s + row.qty, 0);
 
     let cumulativeHTML = `
-      <h3 style="font-family: sans-serif; margin-top: 28px;">Cumulative Production by Tube Length</h3>
-      <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; font-family: sans-serif; max-width: 500px;">
+      <h3 style="font-family: sans-serif; margin-top: 28px;">Cumulative Production by Tube Length & Part Number</h3>
+      <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; font-family: sans-serif; max-width: 600px;">
         <thead style="background-color: #f1f5f9;">
           <tr>
             <th>Tube Length</th>
+            <th>Part Number</th>
             <th>Total Quantity</th>
           </tr>
         </thead>
         <tbody>
     `;
 
-    tubeLengthEntries.forEach(([tl, qty]) => {
+    summaryEntries.forEach(row => {
       cumulativeHTML += `
         <tr>
-          <td style="text-align: center;">${tl}</td>
-          <td style="text-align: center; font-weight: bold;">${qty}</td>
+          <td style="text-align: center;">${row.tl}</td>
+          <td style="text-align: center;">${row.pn}</td>
+          <td style="text-align: center; font-weight: bold;">${row.qty}</td>
         </tr>
       `;
     });
@@ -1790,7 +1829,7 @@ async function sendHourlyProductionReport() {
         </tbody>
         <tfoot style="background-color: #f8fafc; font-weight: bold;">
           <tr>
-            <td style="text-align: right;">Grand Total:</td>
+            <td colspan="2" style="text-align: right;">Grand Total:</td>
             <td style="text-align: center;">${grandTotal}</td>
           </tr>
         </tfoot>
@@ -1798,11 +1837,139 @@ async function sendHourlyProductionReport() {
     `;
     // ── End Cumulative Table ─────────────────────────────────────────────────
 
+    // ── Build Excel Attachment ──────────────────────────────────────────────
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'RSB Dashboard';
+    wb.created = new Date();
+
+    // Helper: style a header row
+    const styleHeaderRow = (row, bgArgb) => {
+      row.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
+      row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgArgb } };
+      row.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      row.height = 24;
+      row.eachCell(cell => {
+        cell.border = {
+          top: { style: 'thin' }, left: { style: 'thin' },
+          bottom: { style: 'thin' }, right: { style: 'thin' }
+        };
+      });
+    };
+
+    const styleDataRow = (row, altBg) => {
+      row.alignment = { horizontal: 'center', vertical: 'middle' };
+      row.eachCell(cell => {
+        if (altBg) {
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+        }
+        cell.border = {
+          top: { style: 'thin' }, left: { style: 'thin' },
+          bottom: { style: 'thin' }, right: { style: 'thin' }
+        };
+      });
+    };
+
+    // ── Sheet 1: Hourly Production ──────────────────────────────────────────
+    const ws1 = wb.addWorksheet('Hourly Production');
+
+    // Title row
+    ws1.mergeCells('A1:F1');
+    const titleCell = ws1.getCell('A1');
+    titleCell.value = `Hourly Production Report — ${prodDateObj.toLocaleDateString('en-IN')}`;
+    titleCell.font = { bold: true, size: 13, color: { argb: 'FFFFFFFF' } };
+    titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
+    titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    ws1.getRow(1).height = 30;
+
+    // Header row
+    const headerRow1 = ws1.addRow(['Time Slot', 'Part Type', 'Tube Length', 'Part Number', 'Quantity', 'Remarks']);
+    styleHeaderRow(headerRow1, 'FF334155');
+
+    ws1.columns = [
+      { key: 'time',       width: 22 },
+      { key: 'part_type',  width: 14 },
+      { key: 'tube',       width: 14 },
+      { key: 'part_no',    width: 18 },
+      { key: 'qty',        width: 12 },
+      { key: 'remarks',    width: 28 },
+    ];
+
+    let rowIdx = 0;
+    rows.forEach(r => {
+      const dataRow = ws1.addRow([
+        `${formatHour(r.hour_slot)} - ${formatHour(r.hour_slot + 1)}`,
+        (r.part_type || '').toUpperCase(),
+        r.tube_length || '',
+        r.part_number || '',
+        Number(r.quantity) || 0,
+        r.remarks || '',
+      ]);
+      styleDataRow(dataRow, rowIdx % 2 === 1);
+      // Highlight quantity cell
+      const qtyCell = dataRow.getCell(5);
+      qtyCell.font = { bold: true };
+      rowIdx++;
+    });
+
+    // Total row
+    const totalRow = ws1.addRow(['', '', '', 'TOTAL', totalQty, '']);
+    totalRow.font = { bold: true, size: 11 };
+    totalRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
+    totalRow.alignment = { horizontal: 'center', vertical: 'middle' };
+    totalRow.eachCell(cell => {
+      cell.border = {
+        top: { style: 'medium' }, left: { style: 'thin' },
+        bottom: { style: 'medium' }, right: { style: 'thin' }
+      };
+    });
+
+    // ── Sheet 2: Summary ──────────────────────────────────────────
+    const ws2 = wb.addWorksheet('Summary');
+
+    ws2.mergeCells('A1:C1');
+    const titleCell2 = ws2.getCell('A1');
+    titleCell2.value = `Cumulative Summary — ${prodDateObj.toLocaleDateString('en-IN')}`;
+    titleCell2.font = { bold: true, size: 13, color: { argb: 'FFFFFFFF' } };
+    titleCell2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } };
+    titleCell2.alignment = { horizontal: 'center', vertical: 'middle' };
+    ws2.getRow(1).height = 30;
+
+    const headerRow2 = ws2.addRow(['Tube Length', 'Part Number', 'Total Quantity']);
+    styleHeaderRow(headerRow2, 'FF334155');
+
+    ws2.columns = [
+      { key: 'tl',  width: 20 },
+      { key: 'pn',  width: 24 },
+      { key: 'qty', width: 18 },
+    ];
+
+    summaryEntries.forEach((row, i) => {
+      const r = ws2.addRow([row.tl, row.pn, row.qty]);
+      styleDataRow(r, i % 2 === 1);
+      r.getCell(3).font = { bold: true };
+    });
+
+    // Grand total row
+    const gtRow = ws2.addRow(['', 'GRAND TOTAL', grandTotal]);
+    gtRow.font = { bold: true, size: 11 };
+    gtRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
+    gtRow.alignment = { horizontal: 'center', vertical: 'middle' };
+    gtRow.eachCell(cell => {
+      cell.border = {
+        top: { style: 'medium' }, left: { style: 'thin' },
+        bottom: { style: 'medium' }, right: { style: 'thin' }
+      };
+    });
+
+    // Generate buffer
+    const xlsxBuffer = await wb.xlsx.writeBuffer();
+    // ── End Excel Attachment ──────────────────────────────────────────────────
+
     const html = `
       <div style="font-family: sans-serif; color: #333;">
         <h2>Hourly Production Report</h2>
         <p><strong>Production Date:</strong> ${prodDateObj.toLocaleDateString('en-IN')}</p>
-        <p>Please find the production records for the day below:</p>
+        <p>Please find the production records for the day below. An Excel sheet is also attached for your reference.</p>
         ${cumulativeHTML}
         ${tableHTML}
         <br/>
@@ -1813,7 +1980,14 @@ async function sendHourlyProductionReport() {
     await sendMail({
       to: recipients,
       subject: `[Hourly Production Report] ${prodDateObj.toLocaleDateString('en-IN')}`,
-      html
+      html,
+      attachments: [
+        {
+          filename: `Hourly_Production_Report_${reportDate}.xlsx`,
+          content: Buffer.from(xlsxBuffer),
+          contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        }
+      ]
     });
 
     console.log(`[HourlyProductionReport] Sent to: ${recipients.join(', ')}`);
@@ -1821,6 +1995,7 @@ async function sendHourlyProductionReport() {
     console.error('[HourlyProductionReport] Error:', err);
   }
 }
+
 
 async function sendBearingCupProductionReport() {
   const now = new Date();
@@ -1938,7 +2113,7 @@ async function sendBearingCupProductionReport() {
 // ─────────────────────────────────────────────
 export function initShiftReportCrons() {
   // Shift A ends → 14:05 IST
-  cron.schedule('26 15 * * *', () => sendShiftReport(0), { timezone: 'Asia/Kolkata' });
+  cron.schedule('05 14 * * *', () => sendShiftReport(0), { timezone: 'Asia/Kolkata' });
 
   // Shift B ends → 22:05 IST
   cron.schedule('05 22 * * *', () => sendShiftReport(1), { timezone: 'Asia/Kolkata' });

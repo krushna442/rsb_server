@@ -84,7 +84,7 @@ function isF4(text) {
  * F6 is distinguished from F1 after parsing by the presence of a hyphen in the vendor code.
  */
 function isF1orF6(text) {
-  return /rev\s*no\s*#/i.test(text) && !text.includes('$');
+  return /rev\s*no\s*/i.test(text) && !text.includes('$');
 }
 
 /**
@@ -103,11 +103,17 @@ function isF5(text) {
 }
 
 /**
- * F3: everything else that looks like a long numeric+alpha fixed block.
- * Accepted when length is 30–36 and no spaces.
+ * F3: Fixed-width numeric block — MUST start with "00" (strong discriminator).
+ * Accepted when length is 30–36 and no delimiters.
+ * Requiring "00" prefix prevents false-positive matches against F5 or other formats.
  */
 function isF3(text) {
-  return /^[A-Z0-9]+$/i.test(text.trim()) && text.trim().length >= 30;
+  const t = text.trim();
+  return (
+    t.startsWith('00') &&              // strong indicator — strips to real part number
+    /^[A-Z0-9]+$/i.test(t) &&          // no delimiters
+    t.length >= 30
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -120,9 +126,9 @@ function isF3(text) {
  * based on whether the vendor code contains a hyphen.
  */
 function parseF1core(text) {
-  // Match: PART_NO + "Rev No#" + optional_rev_digits + space? + REST
+  // Match: PART_NO + "Rev No" + optional '#' + optional_rev_digits + space? + REST
   // REST = VENDOR + MM(2) + YY(2) + SL(6)
-  const match = text.match(/^(.+?)\s*[Rr]ev\s*[Nn]o\s*#([^\s]*)\s*(.+)$/);
+  const match = text.match(/^(.+?)\s*rev\s*no\s*#?([^\s]*)\s*(.+)$/i);
   if (!match) return null;
 
   const partNo    = match[1].trim();

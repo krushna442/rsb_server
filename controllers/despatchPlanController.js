@@ -1,5 +1,5 @@
 // controllers/despatchPlanController.js
-import { query } from '../db/db.js';
+import { query, getConnection } from '../db/db.js';
 import { getConfig } from '../models/dynamicFieldModel.js';
 import { findDespatchMailEmails } from '../models/userModel.js';
 import { emitToAll } from '../utils/socket.js';
@@ -206,6 +206,7 @@ async function sendCompletionMail(allCompletedVehicles, plan_date) {
  * Returns list of newly-completed vehicle labels.
  */
 export async function fillPalletsFromScan(part_no, customer_name, scan_qty = 1, product_type = null, scan_date = null) {
+  let conn;
   try {
     console.log('\n================ fillPalletsFromScan START ================');
     console.log('[INPUT]', {
@@ -222,15 +223,14 @@ export async function fillPalletsFromScan(part_no, customer_name, scan_qty = 1, 
         (product_type || '').trim().toUpperCase()
       )
     ) {
-      console.log(
-        `[fillPalletsFromScan] Skipping excluded product type: ${product_type}`
-      );
+      console.log(`[fillPalletsFromScan] Skipping excluded product type: ${product_type}`);
       return [];
     }
 
     const today = getPlanDate(scan_date || new Date());
     console.log('[PLAN DATE]', today);
 
+    // Initial non-locking read of the plan structure to avoid long locks on unrelated rows
     const plan = await fetchFullPlan(today);
     const prevPendingVehicles = await fetchPendingVehicles(today);
 
@@ -249,13 +249,14 @@ export async function fillPalletsFromScan(part_no, customer_name, scan_qty = 1, 
     const normalPn = (part_no || '').trim().toUpperCase();
     const normalCust = (customer_name || '').trim().toUpperCase();
 
-    console.log('[NORMALIZED INPUT]', {
-      normalPn,
-      normalCust
-    });
+    console.log('[NORMALIZED INPUT]', { normalPn, normalCust });
 
     let remaining = scan_qty;
     const newlyCompletedVehicleIds = [];
+
+    // Get a transaction connection for atomic locking
+    conn = await getConnection();
+    await conn.beginTransaction();
 
     for (const v of orderedVehicles) {
       if (remaining <= 0) break;
@@ -276,53 +277,42 @@ export async function fillPalletsFromScan(part_no, customer_name, scan_qty = 1, 
       }
 
       console.log('[CUSTOMER MATCH]');
+      let vehicleUpdated = false;
 
       for (const p of v.pallets) {
         if (remaining <= 0) break;
 
         const pPn = (p.part_number || '').trim().toUpperCase();
 
-        console.log('Pallet:', {
-          palletId: p.id,
-          palletLabel: p.pallet_label,
-          palletPartNo: pPn,
-          scanPartNo: normalPn,
-          filled: p.filled_quantity,
-          target: p.target_qty
-        });
-
         if (pPn !== normalPn) {
-          console.log('[SKIP PALLET] Part number mismatch');
           continue;
         }
 
-        console.log('[PART MATCH]');
+        console.log('[PART MATCH] Acquiring lock for pallet', p.id);
 
-        const currentFilled = parseInt(p.filled_quantity) || 0;
-        const target = parseInt(p.target_qty) || 0;
+        // Lock this specific pallet for update
+        const [lockedRows] = await conn.execute(
+          `SELECT * FROM despatch_pallets WHERE id = ? FOR UPDATE`,
+          [p.id]
+        );
+
+        if (!lockedRows || lockedRows.length === 0) continue;
+        const lockedPallet = lockedRows[0];
+
+        const currentFilled = parseInt(lockedPallet.filled_quantity) || 0;
+        const target = parseInt(lockedPallet.target_qty) || 0;
 
         if (currentFilled >= target && target > 0) {
-          console.log('[SKIP PALLET] Already full', {
-            currentFilled,
-            target
-          });
+          console.log('[SKIP PALLET] Already full', { currentFilled, target });
           continue;
         }
 
-        const canTake = target > 0
-          ? target - currentFilled
-          : remaining;
-
+        const canTake = target > 0 ? target - currentFilled : remaining;
         const take = Math.min(remaining, canTake);
 
         const newFilled = currentFilled + take;
-
-        const isFulfilled =
-          target > 0 && newFilled >= target ? 1 : 0;
-
-        const currentFilledToday =
-          parseInt(p.filled_today) || 0;
-
+        const isFulfilled = target > 0 && newFilled >= target ? 1 : 0;
+        const currentFilledToday = parseInt(lockedPallet.filled_today) || 0;
         const newFilledToday = currentFilledToday + take;
 
         console.log('[UPDATING PALLET]', {
@@ -333,7 +323,7 @@ export async function fillPalletsFromScan(part_no, customer_name, scan_qty = 1, 
           remainingBefore: remaining
         });
 
-        await query(
+        await conn.execute(
           `
           UPDATE despatch_pallets
           SET filled_quantity = ?,
@@ -341,15 +331,11 @@ export async function fillPalletsFromScan(part_no, customer_name, scan_qty = 1, 
               is_fulfilled = ?
           WHERE id = ?
           `,
-          [
-            newFilled,
-            newFilledToday,
-            isFulfilled,
-            p.id
-          ]
+          [newFilled, newFilledToday, isFulfilled, p.id]
         );
 
         remaining -= take;
+        vehicleUpdated = true;
 
         console.log('[UPDATED]', {
           palletId: p.id,
@@ -357,61 +343,65 @@ export async function fillPalletsFromScan(part_no, customer_name, scan_qty = 1, 
         });
       }
 
-      const freshPallets = await query(
-        `SELECT * FROM despatch_pallets WHERE vehicle_id = ?`,
-        [v.id]
-      );
-
-      const allFulfilled =
-        freshPallets.length > 0 &&
-        freshPallets.every(p => p.is_fulfilled);
-
-      console.log('[VEHICLE STATUS]', {
-        vehicleId: v.id,
-        allFulfilled
-      });
-
-      if (allFulfilled && !v.is_completed) {
-        console.log('[MARK COMPLETE]', v.vehicle_label);
-
-        await query(
-          `
-          UPDATE despatch_vehicles
-          SET is_completed = 1,
-              completed_at = NOW()
-          WHERE id = ?
-          `,
+      if (vehicleUpdated) {
+        // Lock and verify vehicle status if we updated any pallets
+        const [freshPallets] = await conn.execute(
+          `SELECT is_fulfilled FROM despatch_pallets WHERE vehicle_id = ? FOR UPDATE`,
           [v.id]
         );
 
-        newlyCompletedVehicleIds.push(v.id);
+        const allFulfilled = freshPallets.length > 0 && freshPallets.every(p => p.is_fulfilled);
+
+        console.log('[VEHICLE STATUS]', {
+          vehicleId: v.id,
+          allFulfilled
+        });
+
+        if (allFulfilled && !v.is_completed) {
+          console.log('[MARK COMPLETE]', v.vehicle_label);
+          await conn.execute(
+            `
+            UPDATE despatch_vehicles
+            SET is_completed = 1,
+                completed_at = NOW()
+            WHERE id = ?
+            `,
+            [v.id]
+          );
+          newlyCompletedVehicleIds.push(v.id);
+        }
       }
     }
 
+    await conn.commit();
+    
     if (remaining > 0) {
-      console.log(
-        '[WARNING] Scan qty remaining unallocated:',
-        remaining
-      );
+      console.log('[WARNING] Scan qty remaining unallocated:', remaining);
     }
 
-    console.log(
-      '[COMPLETED VEHICLES]',
-      newlyCompletedVehicleIds
-    );
+    if (newlyCompletedVehicleIds.length > 0) {
+      const updatedPlan = await fetchFullPlan(today);
+      if (updatedPlan) {
+        const allCompletedVehicles = updatedPlan.vehicles.filter(veh => veh.is_completed);
+        sendCompletionMail(allCompletedVehicles, today).catch(console.error);
+      }
+    }
 
-    console.log(
-      '================ fillPalletsFromScan END ================\n'
-    );
+    console.log('[COMPLETED VEHICLES]', newlyCompletedVehicleIds);
+    console.log('================ fillPalletsFromScan END ================\n');
 
     return newlyCompletedVehicleIds;
 
   } catch (err) {
-    console.error(
-      'fillPalletsFromScan error:',
-      err
-    );
-    return [];
+    if (conn) {
+      try { await conn.rollback(); } catch (rollbackErr) { console.error('Rollback failed:', rollbackErr); }
+    }
+    console.error('fillPalletsFromScan error:', err);
+    throw err; // Throw error to caller (e.g. createScan) so they know it failed
+  } finally {
+    if (conn) {
+      conn.release();
+    }
   }
 }
 
@@ -608,6 +598,8 @@ export async function savePlan(req, res) {
     }
     await query(`DELETE FROM despatch_vehicles WHERE plan_id = ?`, [plan.id]);
 
+    let newlyCompletedVehicleIds = [];
+
     for (const v of vehicles) {
       const vResult = await query(
         `INSERT INTO despatch_vehicles (plan_id, vehicle_label, customer, priority_number, is_completed) VALUES (?, ?, ?, ?, ?)`,
@@ -616,6 +608,10 @@ export async function savePlan(req, res) {
          v.is_completed ? 1 : 0]
       );
       const vehicleId = vResult.insertId;
+      
+      let allPalletsFulfilled = true;
+      let hasPallets = false;
+
       for (const p of (v.pallets || [])) {
         let tube_length = p.tube_length || null;
         if (p.part_number && !tube_length) {
@@ -627,13 +623,34 @@ export async function savePlan(req, res) {
             } catch (e) {}
           }
         }
+        
+        const tQty = parseInt(p.target_qty) || 0;
+        const fQty = parseInt(p.filled_quantity) || 0;
+        const isFulfill = (tQty > 0 && fQty >= tQty) ? 1 : 0;
+        
+        hasPallets = true;
+        if (!isFulfill) allPalletsFulfilled = false;
+
         await query(
           `INSERT INTO despatch_pallets (vehicle_id, pallet_label, part_number, tube_length, target_qty, filled_quantity, scanned_qty, filled_today, is_fulfilled)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [vehicleId, p.pallet_label, p.part_number || null, tube_length,
-           parseInt(p.target_qty) || 0, parseInt(p.filled_quantity) || 0,
-           parseInt(p.scanned_qty) || 0, 0, p.is_fulfilled ? 1 : 0]
+           tQty, fQty,
+           parseInt(p.scanned_qty) || 0, 0, isFulfill]
         );
+      }
+      
+      if (hasPallets && allPalletsFulfilled && !v.is_completed) {
+        await query(`UPDATE despatch_vehicles SET is_completed = 1, completed_at = NOW() WHERE id = ?`, [vehicleId]);
+        newlyCompletedVehicleIds.push(vehicleId);
+      }
+    }
+
+    if (newlyCompletedVehicleIds.length > 0) {
+      const updatedPlan = await fetchFullPlan(plan_date);
+      if (updatedPlan) {
+        const allCompletedVehicles = updatedPlan.vehicles.filter(veh => veh.is_completed);
+        sendCompletionMail(allCompletedVehicles, plan_date).catch(console.error);
       }
     }
 
@@ -756,17 +773,11 @@ export async function updateScanData(req, res) {
     }
 
     if (newlyCompleted.length > 0) {
-      const allCompletedToday = [];
-      const newlyCompletedIds = newlyCompleted.map(v => v.id);
-      const freshVehicles = await query(
-        `SELECT dv.*, dp.plan_date FROM despatch_vehicles dv JOIN despatch_plans dp ON dp.id = dv.plan_id WHERE dv.id IN (?)`,
-        [newlyCompletedIds]
-      );
-      for (const fv of freshVehicles) {
-        fv.pallets = await query(`SELECT * FROM despatch_pallets WHERE vehicle_id = ?`, [fv.id]);
-        allCompletedToday.push(fv);
+      const updatedPlanForMail = await fetchFullPlan(plan_date);
+      if (updatedPlanForMail) {
+        const allCompletedToday = updatedPlanForMail.vehicles.filter(v => v.is_completed);
+        sendCompletionMail(allCompletedToday, plan_date).catch(console.error);
       }
-      sendCompletionMail(allCompletedToday, plan_date).catch(console.error);
     }
 
     const updatedPlan = await fetchFullPlan(plan_date);
